@@ -1,0 +1,40 @@
+#Generated from Visual Studio settings
+---
+BasedOnStyle: llvm
+BraceWrapping: 
+  AfterClass: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+BreakBeforeBraces: Custom
+ColumnLimit: 120
+TabWidth: 2
+UseTab: ForIndentation
+SpacesInParentheses: true
+AllowShortCaseLabelsOnASingleLine: true
+BinPackArguments: false
+BinPackParameters: false
+CompactNamespaces: true
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 2
+ContinuationIndentWidth: 2
+DerivePointerAlignment: true
+IncludeIsMainRegex: '([-_](test|unittest))?$'
+IndentCaseLabels: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyReturnTypeOnItsOwnLine: 200
+SpacesInCStyleCastParentheses: true
+Standard: Auto
+SortIncludes: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+Cpp11BracedListStyle: false
+AlignEscapedNewlines: DontAlign
+...
