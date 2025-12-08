@@ -89,6 +89,20 @@ struct command final
 		return std::string_view( name_and_desc, i );
 	}
 
+	// Extracts optional argument names (text between command name and semicolon)
+	std::string_view arg_names() const noexcept
+	{
+		size_t i = 0;
+		while ( name_and_desc[i] && !tokenizer::is_ident_term( name_and_desc[i] ) )
+			++i;
+
+		size_t start = i;
+		while ( name_and_desc[i] && name_and_desc[i] != ';' )
+			++i;
+
+		return std::string_view( name_and_desc + start, i - start );
+	}
+
 	// Extracts command description (text after semicolon)
 	std::string_view description() const noexcept
 	{
@@ -162,7 +176,7 @@ struct context final
 	void reset()
 	{
 		args = tokenizer{ raw_command_line };
-		command_name = args.next().value_or( {} );
+		command_name = args.next().value_or( token{} );
 	}
 };
 
@@ -208,8 +222,8 @@ struct descriptor final
  *
  * Specialized variants must provide:
  *   static constexpr std::string_view name;
- *   static std::optional<T> from_chars( std::span<char> ) { ... }
- *   static bool to_chars( std::span<char>, T ) { ... }
+ *   static std::optional<T> from_chars( std::span<char> ) noexcept { ... }
+ *   static bool to_chars( std::span<char>, T ) noexcept { ... }
  *
  * The `name` should contain human-readable type name, e.g. "int", "float", "string", etc.
  *
@@ -280,7 +294,7 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
  * For generic types, extracts next argument from the command line and attempts to parse it
  * into the desired type. Some special "built-in" types are returned directly without parsing.
  */
-template <typename T> static T parse_arg( context &ctx )
+template <typename T> static T parse_arg( context &ctx ) noexcept
 {
 	// C-style `void*` user data pointer passed as-is
 	if constexpr ( std::is_same_v<T, void *> || std::is_same_v<T, const void *> )
@@ -319,7 +333,7 @@ template <typename T> static T parse_arg( context &ctx )
  * a tuple: `std::tuple<int, float, std::string>` with all arguments parsed from the
  * command context.
  */
-template <typename... Args> auto make_args_tuple( context &ctx )
+template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
 {
 	using result_t = std::tuple<typename type_parser_helper<Args>::arg_tuple_type...>;
 
@@ -359,7 +373,7 @@ template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args.
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto callable = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
+		auto callable = reinterpret_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
 		return apply<RT>( ctx, callable, args_tuple );
 	}
 };
@@ -382,6 +396,10 @@ struct method_invoker<C, M, RT ( C::* )( Args... )> : command_traits<RT( Args...
 		return apply<RT>( ctx, callable, args_tuple );
 	}
 };
+
+template <typename C, auto M, typename RT, typename... Args>
+struct method_invoker<C, M, RT ( C::* )( Args... ) noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
+{};
 
 template <typename C, auto M, typename RT, typename... Args>
 struct method_invoker<const C, M, RT ( C::* )( Args... ) const> : method_invoker<C, M, RT ( C::* )( Args... )>
@@ -407,7 +425,7 @@ namespace conco {
 template <typename F>
   requires std::is_function_v<std::remove_pointer_t<F>>
 inline command::command( F func, const char *n )
-  : target( func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n )
+  : target( ( void * )func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n )
 {}
 
 template <auto M, typename C> command method( C &ctx, const char *n )

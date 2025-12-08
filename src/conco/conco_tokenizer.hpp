@@ -1,6 +1,8 @@
 #pragma once
 
 #include <optional>
+#include <span>
+#include <cstring>
 #include <string_view>
 
 namespace conco {
@@ -21,10 +23,7 @@ struct token : std::span<char>
 
 	bool operator==( std::string_view other ) const noexcept
 	{
-		if ( size() != other.size() + 1 )
-			return false;
-
-		return std::memcmp( data(), other.data(), size() ) == 0;
+		return static_cast<std::string_view>( *this ) == other;
 	}
 
 	// Implicit conversion to std::string_view (excluding null-terminator!)

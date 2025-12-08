@@ -12,7 +12,7 @@ template <> struct type_parser<bool>
 {
 	static constexpr std::string_view name = "bool";
 
-	static std::optional<bool> from_chars( std::span<char> buff )
+	static std::optional<bool> from_chars( std::span<char> buff ) noexcept
 	{
 		if ( !std::strcmp( buff.data(), "true" ) || !std::strcmp( buff.data(), "1" ) )
 			return true;
@@ -22,7 +22,7 @@ template <> struct type_parser<bool>
 		return std::nullopt;
 	}
 
-	static bool to_chars( std::span<char> buff, bool value )
+	static bool to_chars( std::span<char> buff, bool value ) noexcept
 	{
 		const char *str = value ? "true" : "false";
 		size_t len = std::char_traits<char>::length( str );
@@ -42,7 +42,7 @@ struct type_parser<T>
 {
 	static constexpr std::string_view name = "int";
 
-	static std::optional<T> from_chars( std::span<char> buff )
+	static std::optional<T> from_chars( std::span<char> buff ) noexcept
 	{
 		int base = 10;
 		T out = 0;
@@ -68,7 +68,7 @@ struct type_parser<T>
 		return out;
 	}
 
-	static bool to_chars( std::span<char> buff, T value )
+	static bool to_chars( std::span<char> buff, T value ) noexcept
 	{
 		auto r = std::to_chars( buff.data(), buff.data() + buff.size() - 1, value ); // Leave space for null-terminator
 		if ( r.ec != std::errc() )
@@ -85,12 +85,12 @@ template <> struct type_parser<std::string_view>
 {
 	static constexpr std::string_view name = "string";
 
-	static std::optional<std::string_view> from_chars( std::span<char> buff )
+	static std::optional<std::string_view> from_chars( std::span<char> buff ) noexcept
 	{
 		return std::string_view{ buff.data(), buff.size() - 1 };
 	}
 
-	static bool to_chars( std::span<char> buff, std::string_view value )
+	static bool to_chars( std::span<char> buff, std::string_view value ) noexcept
 	{
 		if ( buff.size() < value.size() + 1 ) // +1 for null-terminator
 			return false;
@@ -107,9 +107,9 @@ template <> struct type_parser<const char *>
 {
 	static constexpr std::string_view name = "string";
 
-	static std::optional<const char *> from_chars( std::span<char> buff ) { return buff.data(); }
+	static std::optional<const char *> from_chars( std::span<char> buff ) noexcept { return buff.data(); }
 
-	static bool to_chars( std::span<char> buff, const char *value )
+	static bool to_chars( std::span<char> buff, const char *value ) noexcept
 	{
 		size_t len = std::char_traits<char>::length( value );
 		if ( buff.size() < len + 1 ) // +1 for null-terminator
