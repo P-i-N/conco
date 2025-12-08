@@ -109,13 +109,15 @@ int main()
 
 ## Implemnting `help` command
 
-You can access the list of available commands from within a command implementation by accepting a `conco::detail::execution_context` parameter.
+You can access the list of available commands from within a command implementation by accepting a `conco::context` parameter.
 
 ```cpp
-void help(const conco::detail::execution_context &ctx)
+void help(const conco::context &ctx)
 {
 	for (const auto &cmd : ctx.commands)
-		std::println("{} - {}", cmd.name, cmd.desc ? cmd.desc : "No description");
+	{
+		// ... Print command name, description and other info
+	}
 }
 
 int main()

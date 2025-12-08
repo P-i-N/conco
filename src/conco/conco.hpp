@@ -21,55 +21,100 @@ enum class result
 };
 
 /**
- * Executes a command from the given command list based on the provided command line.
+ * Executes a command from the given command list based on the provided command line string.
+ *
+ * The function intentionally accepts non-const `cmd_line` pointer because the tokenizer will
+ * modify it and put in-place null-terminators between tokens. Expect the command line string
+ * to be modified after this call!
  */
 result execute( std::span<const struct command> commands,
-                std::string_view cmd_line,
+                char *cmd_line,
                 struct output &out,
                 void *user_data = nullptr );
 
+/**
+ * Same as above, but creates an `output` structure internally.
+ */
 result execute( std::span<const struct command> commands,
-                std::string_view cmd_line,
+                char *cmd_line,
                 std::span<char> output_buffer = {},
                 void *user_data = nullptr );
 
+/**
+ * Represents a single executable command.
+ *
+ * Commands can be created for free functions, lambdas or member functions (methods).
+ * Everything is type-erased, runtime information about arguments, return type and
+ * invocation are stored separately under `desc` member.
+ *
+ * The whole structure fits nicely into 24 bytes on 64-bit systems or 12 bytes on 32-bit systems.
+ */
 struct command final
 {
+	// Type-erased pointer to a function or a object instance for method commands
 	void *target = nullptr;
 
-	// Metadata about this command's arguments and invoker
-	const struct descriptor &meta;
+	// Runtime info about arguments and invocation function
+	const struct descriptor &desc;
 
 	// Command name with optional arg. names ("sum x y"), followed by optional description block
 	// separated by semicolon ("sum x y;Sum two integers")
 	const char *name_and_desc = nullptr;
 
+	// Constructors for function commands. For method commands, use `method<>()` helper function.
 	template <typename F>
 	  requires std::is_function_v<std::remove_pointer_t<F>>
 	command( F func, const char *n );
 
-	template <typename C>
-	command( const C &ctx, const descriptor &d, const char *n )
-	  : target( const_cast<C *>( &ctx ) ), meta( d ), name_and_desc( n )
-	{
-		//
-	}
-
 	// Temporaries are not allowed
 	template <typename C> command( const C &&, const descriptor &, const char * ) = delete;
 
-	bool operator==( std::string_view name ) const noexcept
+	// Compares only the command name part, ignoring optional argument names and description
+	bool operator==( token name ) const noexcept
 	{
 		size_t i = 0;
-		while ( i < name.size() && name[i] == name_and_desc[i] )
+		while ( i < name.size() && name[i] && name[i] == name_and_desc[i] )
 			++i;
 
-		return i == name.size() && tokenizer::is_ident_term( name_and_desc[i] );
+		return i == ( name.size() - 1 ) && tokenizer::is_ident_term( name_and_desc[i] );
 	}
 
-	std::string_view name() const noexcept { return tokenizer{ name_and_desc }.next().value_or( std::string_view{} ); }
+	// Extracts command name (without argument names and description)
+	std::string_view name() const noexcept
+	{
+		size_t i = 0;
+		while ( name_and_desc[i] && !tokenizer::is_ident_term( name_and_desc[i] ) )
+			++i;
+
+		return std::string_view( name_and_desc, i );
+	}
+
+	// Extracts command description (text after semicolon)
+	std::string_view description() const noexcept
+	{
+		const char *sep = std::strchr( name_and_desc, ';' );
+		if ( !sep )
+			return {};
+
+		return std::string_view( sep + 1 );
+	}
+
+private:
+	template <typename C>
+	command( const C &ctx, const descriptor &d, const char *n )
+	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_desc( n )
+	{}
+
+	template <auto M, typename C> friend command method( C &ctx, const char *n );
+	template <auto M, typename C> friend command method( const C &ctx, const char *n );
 };
 
+/**
+ * Holds the result of a command execution with detailed error information.
+ *
+ * You only provide the buffer for storing stringified command result, the rest is filled
+ * by the execution function and invokers.
+ */
 struct output
 {
 	std::span<char> buffer;                // Buffer for stringified command result
@@ -89,17 +134,27 @@ struct output
 	bool has_error() const noexcept { return arg_error_mask || not_enough_arguments || result_error; }
 };
 
+/**
+ * Encapsulates all the context needed for command execution.
+ *
+ * This structure is created by the `execute()` function and passed down to invokers and
+ * argument parsers. You can also access it from your own command functions by using
+ * `const context &` as one of your argument types.
+ */
 struct context final
 {
-	std::span<const command> commands; // All available commands
-	std::string_view raw_command_line; // Command line text from user
+	std::span<const command> commands; // All available commands (as provided to `execute()`)
+	std::span<char> raw_command_line;  // Command line text buffer from the user
 	tokenizer args;                    // Tokenizer for command arguments
-	std::string_view command_name;     // Command name (first token)
+	token command_name;                // Command name (first token)
 	output &out;                       // Result of the command execution
 	void *user_data;                   // User data, will be passed to `void*` args in command functions
 
-	context( std::span<const command> cmds, std::string_view cmd_line, output &res, void *ud = nullptr ) noexcept
-	  : commands( cmds ), raw_command_line( cmd_line ), out( res ), user_data( ud )
+	context( std::span<const command> cmds, char *cmd_line, output &res, void *ud = nullptr ) noexcept
+	  : commands( cmds ),
+	    raw_command_line( cmd_line, cmd_line ? ( std::strlen( cmd_line ) + 1 ) : 0 ),
+	    out( res ),
+	    user_data( ud )
 	{
 		reset();
 	}
@@ -107,10 +162,17 @@ struct context final
 	void reset()
 	{
 		args = tokenizer{ raw_command_line };
-		command_name = args.next().value_or( std::string_view{} );
+		command_name = args.next().value_or( {} );
 	}
 };
 
+/**
+ * Holds runtime information about the command function or method.
+ *
+ * All the fields are filled from function/method signature traits at compile-time.
+ * This is a "poor man's" reflection for command functions. You can use this to inspect
+ * commands at runtime, generate help texts about arguments, etc.
+ */
 struct descriptor final
 {
 	using invoker_func_t = bool ( * )( struct context & );
@@ -129,7 +191,7 @@ struct descriptor final
 	template <typename I, typename Traits = typename I::traits> static const descriptor &get()
 	{
 		static const descriptor desc = { .invoker = &I::call,
-			                               // Explicitly construct span with correct count to trim the dummy element
+			                               // Explicitly construct span with `arg_count` to trim the dummy element
 			                               .arg_type_names = { Traits::arg_type_names, Traits::arg_count },
 			                               .result_type_name = Traits::result_type_name,
 			                               .arg_count = Traits::arg_count,
@@ -141,10 +203,28 @@ struct descriptor final
 	}
 };
 
+/**
+ * Template for type parsers for converting C++ types to/from strings.
+ *
+ * Specialized variants must provide:
+ *   static constexpr std::string_view name;
+ *   static std::optional<T> from_chars( std::span<char> ) { ... }
+ *   static bool to_chars( std::span<char>, T ) { ... }
+ *
+ * The `name` should contain human-readable type name, e.g. "int", "float", "string", etc.
+ *
+ * The `from_chars()` function should attempt to parse the given string span into the desired type.
+ * It should return `std::nullopt` on failure. The input string span is ALWAYS null-terminated.
+ *
+ * The `to_chars()` function should attempt to convert the given value into string form.
+ * It should return `true` on success, `false` on failure (e.g. buffer too small).
+ *
+ * The default template is a fallback for types without a specialized parser.
+ */
 template <typename T> struct type_parser
 {
-	static constexpr bool not_specialized = true;
-	static constexpr std::string_view name = {};
+	static constexpr bool not_specialized = true; // Marker to indicate no specialization exists
+	static constexpr std::string_view name = {};  // Empty name for unknown types
 };
 
 } // namespace conco
@@ -157,22 +237,21 @@ namespace conco::detail {
 
 template <typename T> struct type_parser_helper
 {
-	using type = T;
-	using arg_tuple_type = std::remove_cvref_t<T>;
-	static constexpr size_t command_arg_count = 1;
+	using arg_tuple_type = std::remove_cvref_t<T>; // How the parsed argument will appear in the args tuple
+	static constexpr size_t command_arg_count = 1; // Number of command arguments this type consumes
 };
 
 template <typename T>
   requires requires { type_parser<T>::not_specialized; }
 struct type_parser_helper<T>
 {
-	using type = T;
-	using arg_tuple_type = T;
-	static constexpr size_t command_arg_count = 0;
+	using arg_tuple_type = T;                      // As-is, does not appear in args tuple anyway
+	static constexpr size_t command_arg_count = 0; // Not specialized, does not consume
 };
 
 template <typename F> struct command_traits;
 
+// Reflects function/method signatures into information about arguments and return type
 template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 {
 	static_assert( sizeof...( Args ) <= 30, "Too many command arguments!" );
@@ -197,6 +276,10 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 	               "Number of command arguments cannot be greater than total number of arguments!" );
 };
 
+/**
+ * For generic types, extracts next argument from the command line and attempts to parse it
+ * into the desired type. Some special "built-in" types are returned directly without parsing.
+ */
 template <typename T> static T parse_arg( context &ctx )
 {
 	// C-style `void*` user data pointer passed as-is
@@ -216,7 +299,7 @@ template <typename T> static T parse_arg( context &ctx )
 	{
 		if ( auto token_opt = ctx.args.next(); token_opt )
 		{
-			if ( auto parsed_opt = type_parser<T>::from_string( *token_opt ); parsed_opt )
+			if ( auto parsed_opt = type_parser<T>::from_chars( *token_opt ); parsed_opt )
 				return *parsed_opt;
 
 			size_t current_cmd_arg_index = ctx.args.count - 2; // +1 for cmd name token, +1 for last `next`
@@ -229,14 +312,22 @@ template <typename T> static T parse_arg( context &ctx )
 	}
 }
 
+/**
+ * Creates a tuple of parsed arguments for the given command function/method.
+ *
+ * For example, for a function `void foo(int, float, std::string)`, this will return
+ * a tuple: `std::tuple<int, float, std::string>` with all arguments parsed from the
+ * command context.
+ */
 template <typename... Args> auto make_args_tuple( context &ctx )
 {
 	using result_t = std::tuple<typename type_parser_helper<Args>::arg_tuple_type...>;
 
-	// Using brace initialization to guarantee left-to-right evaluation order
+	// Using brace initialization to guarantee left-to-right evaluation order or `parse_arg<>()` calls
 	return result_t{ ( parse_arg<Args>( ctx ) )... };
 }
 
+// Applies given tuple of arguments to the callable (function/method) and handles result stringification
 template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&args_tuple )
 {
 	if constexpr ( std::is_void_v<RT> )
@@ -250,7 +341,7 @@ template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&
 	{
 		auto r = std::apply( callable, args_tuple );
 		if ( !ctx.out.buffer.empty() )
-			ctx.out.result_error = !type_parser<RT>::to_string( r, ctx.out.buffer );
+			ctx.out.result_error = !type_parser<RT>::to_chars( ctx.out.buffer, r );
 	}
 
 	return true;
@@ -316,7 +407,7 @@ namespace conco {
 template <typename F>
   requires std::is_function_v<std::remove_pointer_t<F>>
 inline command::command( F func, const char *n )
-  : target( func ), meta( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n )
+  : target( func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n )
 {}
 
 template <auto M, typename C> command method( C &ctx, const char *n )
@@ -329,7 +420,7 @@ template <auto M, typename C> command method( const C &ctx, const char *n )
 	return { ctx, descriptor::get<detail::method_invoker<const C, M, decltype( M )>>(), n };
 }
 
-inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out, void *user_data )
+inline result execute( std::span<const command> commands, char *cmd_line, output &out, void *user_data )
 {
 	context ctx = { commands, cmd_line, out, user_data };
 	size_t overload_count = 0;
@@ -342,7 +433,7 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 		out.reset();
 		out.cmd = &*cmd_iter;
 
-		if ( out.cmd->meta.invoker( ctx ) )
+		if ( out.cmd->desc.invoker( ctx ) )
 			return result::success;
 
 		ctx.reset();
@@ -356,7 +447,7 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 }
 
 inline result execute( std::span<const command> commands,
-                       std::string_view cmd_line,
+                       char *cmd_line,
                        std::span<char> output_buffer,
                        void *user_data )
 {

@@ -12,17 +12,17 @@ template <> struct type_parser<bool>
 {
 	static constexpr std::string_view name = "bool";
 
-	static std::optional<bool> from_string( std::string_view str )
+	static std::optional<bool> from_chars( std::span<char> buff )
 	{
-		if ( str == "true" || str == "1" )
+		if ( !std::strcmp( buff.data(), "true" ) || !std::strcmp( buff.data(), "1" ) )
 			return true;
-		else if ( str == "false" || str == "0" )
+		else if ( !std::strcmp( buff.data(), "false" ) || !std::strcmp( buff.data(), "0" ) )
 			return false;
 
 		return std::nullopt;
 	}
 
-	static bool to_string( bool value, std::span<char> buff )
+	static bool to_chars( std::span<char> buff, bool value )
 	{
 		const char *str = value ? "true" : "false";
 		size_t len = std::char_traits<char>::length( str );
@@ -42,30 +42,33 @@ struct type_parser<T>
 {
 	static constexpr std::string_view name = "int";
 
-	static std::optional<T> from_string( std::string_view str )
+	static std::optional<T> from_chars( std::span<char> buff )
 	{
 		int base = 10;
 		T out = 0;
 
-		if ( str.starts_with( "0x" ) || str.starts_with( "0X" ) )
+		if ( buff.size() >= 2 && buff[0] == '0' )
 		{
-			base = 16;
-			str.remove_prefix( 2 );
-		}
-		else if ( str.starts_with( "0b" ) || str.starts_with( "0B" ) )
-		{
-			base = 2;
-			str.remove_prefix( 2 );
+			if ( buff[1] == 'x' || buff[1] == 'X' )
+			{
+				base = 16;
+				buff = buff.subspan( 2 );
+			}
+			else if ( buff[1] == 'b' || buff[1] == 'B' )
+			{
+				base = 2;
+				buff = buff.subspan( 2 );
+			}
 		}
 
-		auto r = std::from_chars( str.data(), str.data() + str.size(), out, base );
+		auto r = std::from_chars( buff.data(), buff.data() + buff.size(), out, base );
 		if ( r.ec != std::errc() )
 			return std::nullopt;
 
 		return out;
 	}
 
-	static bool to_string( T value, std::span<char> buff )
+	static bool to_chars( std::span<char> buff, T value )
 	{
 		auto r = std::to_chars( buff.data(), buff.data() + buff.size() - 1, value ); // Leave space for null-terminator
 		if ( r.ec != std::errc() )
@@ -82,9 +85,12 @@ template <> struct type_parser<std::string_view>
 {
 	static constexpr std::string_view name = "string";
 
-	static std::optional<std::string_view> from_string( std::string_view str ) { return str; }
+	static std::optional<std::string_view> from_chars( std::span<char> buff )
+	{
+		return std::string_view{ buff.data(), buff.size() - 1 };
+	}
 
-	static bool to_string( std::string_view value, std::span<char> buff )
+	static bool to_chars( std::span<char> buff, std::string_view value )
 	{
 		if ( buff.size() < value.size() + 1 ) // +1 for null-terminator
 			return false;
@@ -101,7 +107,9 @@ template <> struct type_parser<const char *>
 {
 	static constexpr std::string_view name = "string";
 
-	static bool to_string( const char *value, std::span<char> buff )
+	static std::optional<const char *> from_chars( std::span<char> buff ) { return buff.data(); }
+
+	static bool to_chars( std::span<char> buff, const char *value )
 	{
 		size_t len = std::char_traits<char>::length( value );
 		if ( buff.size() < len + 1 ) // +1 for null-terminator
