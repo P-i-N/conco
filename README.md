@@ -25,6 +25,7 @@ In another words - `conco` is primarily a command dispatcher, designed to take a
 * **Automatic argument parsing**: Arguments are automatically tokenized and converted from strings to the types required by the function parameters.
 * **Return value handling**: Captures the return value of the executed function and can stringify it into a user-provided buffer.
 * **Custom types**: User can define specialized conversion functions to enable argument parsing for custom types.
+* **Default arguments**: Supports commands with default arguments.
 * **Overloading**: Supports function overloading by allowing multiple functions with the same name, but different set of parameters.
 
 ## Basic Example
@@ -104,6 +105,33 @@ int main()
 	// Calls `calc.sub(10, 5)` and writes stringified result to `buffer`
 	conco::execute(commands, "sub 10 5", buffer);
 	std::println("{}", buffer); // Outputs: 5
+}
+```
+
+## Default arguments
+
+```cpp
+int sum_four(int a, int b, int c, int d) { return a + b + c + d; }
+
+int main()
+{
+	conco::command commands[] = {
+		{ sum_four, "sum_four x=1 y=2 z=3 w=4;Sum of four integers" }
+	};
+
+	char buffer[256] = { 0 };
+
+	// Calls `sum_four(1, 2, 3, 4)`
+	conco::execute(commands, "sum_four", buffer);
+	std::println("{}", buffer); // Outputs: 10
+
+	// Calls `sum_four(10, 20, 3, 4)`
+	conco::execute(commands, "sum_four 10 20 3 4", buffer);
+	std::println("{}", buffer); // Outputs: 37
+
+	// Calls `sum_four(10, 20, 30, 40)`
+	conco::execute(commands, "sum_four 10 20 30 40", buffer);
+	std::println("{}", buffer); // Outputs: 100
 }
 ```
 

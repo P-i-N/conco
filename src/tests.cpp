@@ -57,7 +57,7 @@ TEST_SUITE( "Tokenizer tests" )
 
 	TEST_CASE( "Basic split test" )
 	{
-		std::string input = R"(    first_token"second token", 'third token';    fourth_token "'5th'" '"6th')";
+		std::string input = R"(    first_token"second token", 'third token'  ,  fourth_token "'5th'" '"6th')";
 		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
 		REQUIRE( tokenizer.count == 0 );
 
@@ -139,6 +139,20 @@ TEST_SUITE( "Tokenizer tests" )
 		CHECK_NEXT_EMPTY_TOKEN( 1 );
 	}
 
+	TEST_CASE( "Equal sign" )
+	{
+		conco::tokenizer tokenizer( "a=b c =d;e" );
+		REQUIRE( tokenizer.count == 0 );
+
+		CHECK_NEXT_TOKEN( "a", 1 );
+		CHECK_NEXT_TOKEN( "=", 2 );
+		CHECK_NEXT_TOKEN( "b", 3 );
+		CHECK_NEXT_TOKEN( "c", 4 );
+		CHECK_NEXT_TOKEN( "=", 5 );
+		CHECK_NEXT_TOKEN( "d", 6 );
+		CHECK_NEXT_EMPTY_TOKEN( 6 );
+	}
+
 	TEST_CASE( "Mixed tokens" )
 	{
 		std::string input = R"(
@@ -178,7 +192,6 @@ TEST_SUITE( "Type parsing tests" )
 {
 	TEST_CASE( "Basic types" )
 	{
-		/*
 		CHECK_TYPE_PARSER_FROM_STRING( int, "123", 123, true );
 		CHECK_TYPE_PARSER_FROM_STRING( int, "0x123", 0x123, true );
 		CHECK_TYPE_PARSER_FROM_STRING( int, "0b11001010", 0b11001010, true );
@@ -190,7 +203,6 @@ TEST_SUITE( "Type parsing tests" )
 		CHECK_TYPE_PARSER_FROM_STRING( bool, "yes", false, false );
 		CHECK_TYPE_PARSER_FROM_STRING( bool, "maybe", false, false );
 		CHECK_TYPE_PARSER_FROM_STRING( std::string_view, "abc", "abc", true );
-		*/
 	}
 }
 
@@ -327,8 +339,8 @@ TEST_SUITE( "Callback types" )
 		};
 
 		static const conco::command commands[] = {
-			{ +[]( int x, int y ) { return x + y; }, "add x y" }, { +[]( int x, int y ) { return x - y; }, "sub x y" },
-			//{ capturing_lambda, "capture_add x y" },
+			{ +[]( int x, int y ) { return x + y; }, "add x y" },
+			{ +[]( int x, int y ) { return x - y; }, "sub x y" },
 		};
 
 		CHECK( commands[0].desc.arg_count == 2 );
@@ -345,12 +357,41 @@ TEST_SUITE( "Callback types" )
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+TEST_SUITE( "Default arguments" )
+{
+	TEST_CASE( "Default arguments" )
+	{
+		static const conco::command commands[] = {
+			{ +[]( int x, int y, int z, int w ) { return x + y + z + w; },
+			  "bar x=1 y = 2 z= 3 w =4;Compute sum of four integers" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "bar", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "10" );
+
+		CHECK( execute( commands, "bar 10", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "19" );
+
+		CHECK( execute( commands, "bar 10 20", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "37" );
+
+		CHECK( execute( commands, "bar 10 20 30", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "64" );
+
+		CHECK( execute( commands, "bar 10 20 30 40", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "100" );
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 TEST_SUITE( "Overloading" )
 {
 	TEST_CASE( "Overloading" )
 	{
 		static const conco::command commands[] = {
-			{ +[]( int x, int y ) { return x + y; }, "compute;Compute sum of two integers" },
+			{ +[]( int x, int y ) { return x + y; }, "compute x y=100;Compute sum of two integers" },
 			{ +[]( std::string_view str ) { return str.size(); }, "compute;Compute length of a string" },
 		};
 
@@ -359,8 +400,13 @@ TEST_SUITE( "Overloading" )
 		CHECK( execute( commands, "compute 10 20", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "30" );
 
+		CHECK( execute( commands, "compute 10", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "110" );
+
 		CHECK( execute( commands, "compute HelloWorld", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "10" );
+
+		CHECK( execute( commands, "compute", buffer ) == conco::result::no_matching_overload );
 	}
 
 	TEST_CASE( "Overloading errors" )
@@ -384,11 +430,11 @@ TEST_SUITE( "Tail arguments" )
 	{
 		int out = 0;
 
-		std::optional<conco::token> token;
+		std::optional<std::string_view> token;
 		while ( ( token = args.next() ).has_value() )
 		{
 			int value = 0;
-			if ( auto value_opt = conco::type_parser<int>::from_chars( *token ); value_opt.has_value() )
+			if ( auto value_opt = conco::type_parser<int>::from_string( *token ); value_opt.has_value() )
 				value = *value_opt;
 
 			out += value;

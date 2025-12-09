@@ -12,7 +12,7 @@ template <> struct type_parser<bool>
 {
 	static constexpr std::string_view name = "bool";
 
-	static std::optional<bool> from_chars( std::span<char> buff ) noexcept
+	static std::optional<bool> from_string( std::string_view buff ) noexcept
 	{
 		if ( !std::strcmp( buff.data(), "true" ) || !std::strcmp( buff.data(), "1" ) )
 			return true;
@@ -42,7 +42,7 @@ struct type_parser<T>
 {
 	static constexpr std::string_view name = "int";
 
-	static std::optional<T> from_chars( std::span<char> buff ) noexcept
+	static std::optional<T> from_string( std::string_view buff ) noexcept
 	{
 		int base = 10;
 		T out = 0;
@@ -52,12 +52,12 @@ struct type_parser<T>
 			if ( buff[1] == 'x' || buff[1] == 'X' )
 			{
 				base = 16;
-				buff = buff.subspan( 2 );
+				buff.remove_prefix( 2 );
 			}
 			else if ( buff[1] == 'b' || buff[1] == 'B' )
 			{
 				base = 2;
-				buff = buff.subspan( 2 );
+				buff.remove_prefix( 2 );
 			}
 		}
 
@@ -85,10 +85,7 @@ template <> struct type_parser<std::string_view>
 {
 	static constexpr std::string_view name = "string";
 
-	static std::optional<std::string_view> from_chars( std::span<char> buff ) noexcept
-	{
-		return std::string_view{ buff.data(), buff.size() - 1 };
-	}
+	static std::optional<std::string_view> from_string( std::string_view buff ) noexcept { return buff; }
 
 	static bool to_chars( std::span<char> buff, std::string_view value ) noexcept
 	{
@@ -96,7 +93,6 @@ template <> struct type_parser<std::string_view>
 			return false;
 
 		std::copy_n( value.data(), value.size(), buff.data() );
-		buff[value.size()] = '\0';
 		return true;
 	}
 };
@@ -106,8 +102,6 @@ template <> struct type_parser<std::string_view>
 template <> struct type_parser<const char *>
 {
 	static constexpr std::string_view name = "string";
-
-	static std::optional<const char *> from_chars( std::span<char> buff ) noexcept { return buff.data(); }
 
 	static bool to_chars( std::span<char> buff, const char *value ) noexcept
 	{

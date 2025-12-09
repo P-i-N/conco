@@ -22,13 +22,9 @@ enum class result
 
 /**
  * Executes a command from the given command list based on the provided command line string.
- *
- * The function intentionally accepts non-const `cmd_line` pointer because the tokenizer will
- * modify it and put in-place null-terminators between tokens. Expect the command line string
- * to be modified after this call!
  */
 result execute( std::span<const struct command> commands,
-                char *cmd_line,
+                std::string_view cmd_line,
                 struct output &out,
                 void *user_data = nullptr );
 
@@ -36,7 +32,7 @@ result execute( std::span<const struct command> commands,
  * Same as above, but creates an `output` structure internally.
  */
 result execute( std::span<const struct command> commands,
-                char *cmd_line,
+                std::string_view cmd_line,
                 std::span<char> output_buffer = {},
                 void *user_data = nullptr );
 
@@ -70,13 +66,13 @@ struct command final
 	template <typename C> command( const C &&, const descriptor &, const char * ) = delete;
 
 	// Compares only the command name part, ignoring optional argument names and description
-	bool operator==( token name ) const noexcept
+	bool operator==( std::string_view name ) const noexcept
 	{
 		size_t i = 0;
 		while ( i < name.size() && name[i] && name[i] == name_and_desc[i] )
 			++i;
 
-		return i == ( name.size() - 1 ) && tokenizer::is_ident_term( name_and_desc[i] );
+		return i == name.size() && tokenizer::is_ident_term( name_and_desc[i] );
 	}
 
 	// Extracts command name (without argument names and description)
@@ -137,9 +133,9 @@ struct output
 	bool not_enough_arguments : 1 = false; // Whether there were not enough arguments
 	bool result_error : 1 = false;         // Result stringification failed (does not mean execution failed!)
 
-	void reset() noexcept
+	void reset( const command *c = nullptr ) noexcept
 	{
-		cmd = nullptr;
+		cmd = c;
 		arg_error_mask = 0;
 		not_enough_arguments = false;
 		result_error = false;
@@ -158,26 +154,12 @@ struct output
 struct context final
 {
 	std::span<const command> commands; // All available commands (as provided to `execute()`)
-	std::span<char> raw_command_line;  // Command line text buffer from the user
+	std::string_view raw_command_line; // Command line text buffer from the user
+	std::string_view command_name;     // Command name (first token)
 	tokenizer args;                    // Tokenizer for command arguments
-	token command_name;                // Command name (first token)
+	tokenizer default_args;            // Tokenizer for default arguments (if any)
 	output &out;                       // Result of the command execution
 	void *user_data;                   // User data, will be passed to `void*` args in command functions
-
-	context( std::span<const command> cmds, char *cmd_line, output &res, void *ud = nullptr ) noexcept
-	  : commands( cmds ),
-	    raw_command_line( cmd_line, cmd_line ? ( std::strlen( cmd_line ) + 1 ) : 0 ),
-	    out( res ),
-	    user_data( ud )
-	{
-		reset();
-	}
-
-	void reset()
-	{
-		args = tokenizer{ raw_command_line };
-		command_name = args.next().value_or( token{} );
-	}
 };
 
 /**
@@ -222,13 +204,13 @@ struct descriptor final
  *
  * Specialized variants must provide:
  *   static constexpr std::string_view name;
- *   static std::optional<T> from_chars( std::span<char> ) noexcept { ... }
+ *   static std::optional<T> from_string( std::string_view ) noexcept { ... }
  *   static bool to_chars( std::span<char>, T ) noexcept { ... }
  *
  * The `name` should contain human-readable type name, e.g. "int", "float", "string", etc.
  *
  * The `from_chars()` function should attempt to parse the given string span into the desired type.
- * It should return `std::nullopt` on failure. The input string span is ALWAYS null-terminated.
+ * It should return `std::nullopt` on failure.
  *
  * The `to_chars()` function should attempt to convert the given value into string form.
  * It should return `true` on success, `false` on failure (e.g. buffer too small).
@@ -311,16 +293,32 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
 	// Everything else is parsed and converted from string into the desired type
 	else
 	{
-		if ( auto token_opt = ctx.args.next(); token_opt )
+		token default_value = std::nullopt;
+		if ( ctx.default_args.next() ) // Consume optional argument name
 		{
-			if ( auto parsed_opt = type_parser<T>::from_chars( *token_opt ); parsed_opt )
+			if ( ctx.default_args.next_char_is( '=' ) )
+			{
+				ctx.default_args.next(); // Consume '=' token
+				default_value = ctx.default_args.next();
+			}
+		}
+
+		token arg = ctx.args.next();
+		if ( !arg && default_value )
+			arg = default_value;
+
+		if ( arg )
+		{
+			if ( auto parsed_opt = type_parser<T>::from_string( *arg ); parsed_opt )
 				return *parsed_opt;
 
 			size_t current_cmd_arg_index = ctx.args.count - 2; // +1 for cmd name token, +1 for last `next`
 			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << current_cmd_arg_index );
 		}
 		else
+		{
 			ctx.out.not_enough_arguments = true;
+		}
 
 		return T{};
 	}
@@ -438,24 +436,33 @@ template <auto M, typename C> command method( const C &ctx, const char *n )
 	return { ctx, descriptor::get<detail::method_invoker<const C, M, decltype( M )>>(), n };
 }
 
-inline result execute( std::span<const command> commands, char *cmd_line, output &out, void *user_data )
+inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out, void *user_data )
 {
-	context ctx = { commands, cmd_line, out, user_data };
 	size_t overload_count = 0;
 
-	auto cmd_iter = std::ranges::find_if( commands, [&]( const command &cmd ) { return cmd == ctx.command_name; } );
-	while ( cmd_iter != commands.end() && *cmd_iter == ctx.command_name )
+	tokenizer tok( cmd_line );
+	std::string_view command_name = tok.next().value_or( std::string_view() );
+
+	auto cmd_iter = std::ranges::find_if( commands, [&]( const command &cmd ) { return cmd == command_name; } );
+	if ( cmd_iter == commands.end() )
+		return result::command_not_found;
+
+	while ( true )
 	{
 		++overload_count;
 
-		out.reset();
-		out.cmd = &*cmd_iter;
+		tokenizer default_args( cmd_iter->name_and_desc + command_name.size() );
+		context ctx = { commands, cmd_line, command_name, tok, default_args, out, user_data };
+
+		out.reset( &*cmd_iter );
 
 		if ( out.cmd->desc.invoker( ctx ) )
 			return result::success;
 
-		ctx.reset();
 		++cmd_iter;
+
+		if ( cmd_iter == commands.end() || *cmd_iter != command_name )
+			break;
 	}
 
 	if ( overload_count == 1 )
@@ -465,7 +472,7 @@ inline result execute( std::span<const command> commands, char *cmd_line, output
 }
 
 inline result execute( std::span<const command> commands,
-                       char *cmd_line,
+                       std::string_view cmd_line,
                        std::span<char> output_buffer,
                        void *user_data )
 {

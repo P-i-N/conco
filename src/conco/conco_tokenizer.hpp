@@ -1,44 +1,11 @@
 #pragma once
 
 #include <optional>
-#include <span>
-#include <cstring>
 #include <string_view>
 
 namespace conco {
 
-/**
- * A lightweight token representation as a span of characters.
- *
- * The token is always null-terminated, so it can be used as a C-string directly.
- * The size() includes the null-terminator character.
- */
-struct token : std::span<char>
-{
-	using std::span<char>::span;
-
-	token() = default;
-	token( std::nullptr_t ) noexcept : std::span<char>() {}
-	token( std::span<char> other ) noexcept : std::span<char>( other ) {}
-
-	bool operator==( std::string_view other ) const noexcept
-	{
-		return static_cast<std::string_view>( *this ) == other;
-	}
-
-	// Implicit conversion to std::string_view (excluding null-terminator!)
-	operator std::string_view() const noexcept
-	{
-		return empty() ? std::string_view() : std::string_view( data(), size() - 1 );
-	}
-
-	bool valid() const noexcept { return data() && size() > 0; }
-
-	// C-string access - safe, because null-terminator is always included
-	const char *c_str() const noexcept { return data(); }
-};
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+using token = std::optional<std::string_view>;
 
 /**
  * Very simple tokenizer that splits a string into a substrings (tokens) based on whitespace, commas
@@ -51,83 +18,89 @@ struct token : std::span<char>
  *   "a 'b c';d"         -> "a", "b c", "d"
  *   "a {b c {d e} f} g" -> "a", "b c {d e} f", "g"
  *   "a {b '{c d}' e} f" -> "a", "b '{c d}' e", "f"
- *
- * The tokenizer modifies the input string by inserting null-terminators between tokens.
- * Expect the input string to be changed after using this tokenizer! This is a trade-off
- * for
  */
 struct tokenizer
 {
-	token text;
-	size_t count = 0;
-
 	// Characters that terminate identifier token
 	static constexpr auto is_ident_term = []( char ch ) static -> bool {
-		return ch <= ' ' || ch == ',' || ch == ';' || ch == '"' || ch == '\'' || ch == '{' || ch == '}';
+		return ch <= ' ' || ch == ',' || ch == ';' || ch == '=' || ch == '"' || ch == '\'' || ch == '{' || ch == '}';
 	};
 
 	// Characters that are considered whitespace or delimiters between tokens
-	static constexpr auto is_whitespace = []( char ch ) static -> bool { return ch <= ' ' || ch == ',' || ch == ';'; };
+	static constexpr auto is_whitespace = []( char ch ) static -> bool { return ch <= ' ' || ch == ','; };
+
+	std::string_view text;
+	size_t count = 0;
 
 	tokenizer() = default;
+	tokenizer( const tokenizer & ) = default;
+	tokenizer( tokenizer && ) = default;
 
-	tokenizer( token t ) noexcept : text( t ) { _first_char = t.empty() ? '\0' : t[0]; }
+	tokenizer( std::string_view str ) : text( str ) { consume_whitespace(); }
 
-	tokenizer( char *str ) noexcept : tokenizer( { str, str ? ( std::strlen( str ) + 1 ) : 0 } ) {}
+	bool empty() const noexcept { return text.empty(); }
+
+	void reset( std::string_view str )
+	{
+		text = str;
+		count = 0;
+		consume_whitespace();
+	}
+
+	bool next_char_is( char ch ) const noexcept { return !text.empty() && text[0] == ch; }
 
 	void consume_whitespace()
 	{
 		size_t i = 0;
-		while ( i < text.size() && is_whitespace( at( i ) ) )
+		while ( i < text.size() && is_whitespace( text[i] ) )
 			++i;
 
-		if ( i > 0 )
-		{
-			text = text.subspan( i );
-			_first_char = text.empty() ? '\0' : text[0];
-		}
+		text.remove_prefix( i );
 	}
 
-	std::optional<token> next() noexcept
+	std::optional<std::string_view> next() noexcept
 	{
-		consume_whitespace();
-
 		if ( text.empty() )
 			return std::nullopt;
 
-		if ( _first_char == '"' || _first_char == '\'' )
-			return parse_quoted_string();
+		switch ( text[0] )
+		{
+			default: return parse_identifier();
 
-		if ( _first_char == '{' )
-			return parse_block();
+			case '"':
+			case '\'': return parse_quoted_string();
+			case '{': return parse_block();
+			case ';': return std::nullopt;
 
-		return parse_identifier();
+			case '=': break;
+		}
+
+		std::string_view single_char_token = text.substr( 0, 1 );
+		text.remove_prefix( 1 );
+		++count;
+
+		consume_whitespace();
+		return single_char_token;
 	}
 
 private:
-	char _first_char = '\0';
-
-	char at( size_t index ) const { return index == 0 ? _first_char : text[index]; }
-
-	std::optional<token> extract_token( size_t token_length, size_t consume_length )
+	std::optional<std::string_view> extract_token( size_t length, bool trim_ends )
 	{
-		if ( token_length >= text.size() )
+		if ( length > text.size() )
 		{
 			text = {};
 			return std::nullopt;
 		}
 
-		_first_char = text[consume_length];
-
-		text[token_length] = '\0';
-		token t = text.subspan( 0, token_length + 1 );
-		text = text.subspan( consume_length );
+		std::string_view token = trim_ends ? text.substr( 1, length - 2 ) : text.substr( 0, length );
+		text.remove_prefix( length );
 		++count;
 
-		return t;
+		consume_whitespace();
+		return token;
 	}
 
-	std::optional<token> parse_identifier()
+	std::optional<std::string_view> parse_identifier()
 	{
 		char prev_ch = '\0';
 
@@ -148,16 +121,15 @@ private:
 			++i;
 		}
 
-		return extract_token( i, i );
+		return extract_token( i, false );
 	}
 
-	std::optional<token> parse_quoted_string()
+	std::optional<std::string_view> parse_quoted_string()
 	{
 		char prev_ch = '\0';
-		char quote_char = _first_char;
-		text = text.subspan( 1 ); // Consume opening quote
+		char quote_char = text[0];
 
-		size_t i = 0;
+		size_t i = 1;
 		while ( i < text.size() )
 		{
 			char ch = text[i];
@@ -167,6 +139,7 @@ private:
 				if ( ch == quote_char )
 				{
 					quote_char = '\0';
+					++i;
 					break;
 				}
 			}
@@ -183,17 +156,16 @@ private:
 			return std::nullopt;
 		}
 
-		return extract_token( i, i + 1 );
+		return extract_token( i, true );
 	}
 
-	std::optional<token> parse_block()
+	std::optional<std::string_view> parse_block()
 	{
 		size_t depth = 1;
 		char prev_ch = '\0';
 		char quote_char = '\0';
-		text = text.subspan( 1 ); // Consume opening brace
 
-		size_t i = 0;
+		size_t i = 1;
 		while ( i < text.size() && depth > 0 )
 		{
 			char ch = text[i];
@@ -212,7 +184,10 @@ private:
 					else if ( ch == '{' )
 						++depth;
 					else if ( ch == '}' && !( --depth ) )
+					{
+						++i;
 						break;
+					}
 				}
 			}
 			else if ( ch == '\\' )
@@ -228,8 +203,10 @@ private:
 			return std::nullopt;
 		}
 
-		return extract_token( i, i + 1 );
+		return extract_token( i, true );
 	}
+
+private:
 };
 
 } // namespace conco
