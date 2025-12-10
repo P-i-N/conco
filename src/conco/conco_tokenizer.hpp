@@ -30,7 +30,6 @@ struct tokenizer
 	static constexpr auto is_whitespace = []( char ch ) static -> bool { return ch <= ' ' || ch == ','; };
 
 	std::string_view text;
-	size_t count = 0;
 
 	tokenizer() = default;
 	tokenizer( const tokenizer & ) = default;
@@ -43,7 +42,6 @@ struct tokenizer
 	void reset( std::string_view str )
 	{
 		text = str;
-		count = 0;
 		consume_whitespace();
 	}
 
@@ -56,6 +54,18 @@ struct tokenizer
 			++i;
 
 		text.remove_prefix( i );
+	}
+
+	bool consume_char_if( char ch ) noexcept
+	{
+		if ( next_char_is( ch ) )
+		{
+			text.remove_prefix( 1 );
+			consume_whitespace();
+			return true;
+		}
+
+		return false;
 	}
 
 	std::optional<std::string_view> next() noexcept
@@ -77,7 +87,6 @@ struct tokenizer
 
 		std::string_view single_char_token = text.substr( 0, 1 );
 		text.remove_prefix( 1 );
-		++count;
 
 		consume_whitespace();
 		return single_char_token;
@@ -94,7 +103,6 @@ private:
 
 		std::string_view token = trim_ends ? text.substr( 1, length - 2 ) : text.substr( 0, length );
 		text.remove_prefix( length );
-		++count;
 
 		consume_whitespace();
 		return token;

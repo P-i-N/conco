@@ -27,153 +27,129 @@ conco::result execute( std::span<const conco::command> commands,
 
 } // namespace
 
-#define CHECK_NEXT_TOKEN( _Value, _Count ) \
+#define CHECK_NEXT_TOKEN( _Value ) \
 	do \
 	{ \
 		auto token = tokenizer.next(); \
 		REQUIRE( token.has_value() ); \
 		REQUIRE( *token == _Value ); \
-		REQUIRE( tokenizer.count == _Count ); \
 	} while ( false )
 
-#define CHECK_NEXT_EMPTY_TOKEN( _Count ) \
+#define CHECK_NEXT_EMPTY_TOKEN \
 	do \
 	{ \
 		auto token = tokenizer.next(); \
 		REQUIRE( !token.has_value() ); \
-		REQUIRE( tokenizer.count == _Count ); \
 	} while ( false )
 
 TEST_SUITE( "Tokenizer tests" )
 {
 	TEST_CASE( "Empty string" )
 	{
-		std::string input = "";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
-
-		CHECK_NEXT_EMPTY_TOKEN( 0 );
+		conco::tokenizer tokenizer{ "" };
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Basic split test" )
 	{
-		std::string input = R"(    first_token"second token", 'third token'  ,  fourth_token "'5th'" '"6th')";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"(    first_token"second token", 'third token'  ,  fourth_token "'5th'" '"6th')" };
 
-		CHECK_NEXT_TOKEN( "first_token", 1 );
-		CHECK_NEXT_TOKEN( "second token", 2 );
-		CHECK_NEXT_TOKEN( "third token", 3 );
-		CHECK_NEXT_TOKEN( "fourth_token", 4 );
-		CHECK_NEXT_TOKEN( "'5th'", 5 );
-		CHECK_NEXT_TOKEN( "\"6th", 6 );
+		CHECK_NEXT_TOKEN( "first_token" );
+		CHECK_NEXT_TOKEN( "second token" );
+		CHECK_NEXT_TOKEN( "third token" );
+		CHECK_NEXT_TOKEN( "fourth_token" );
+		CHECK_NEXT_TOKEN( "'5th'" );
+		CHECK_NEXT_TOKEN( "\"6th" );
 
-		CHECK_NEXT_EMPTY_TOKEN( 6 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Unclosed string" )
 	{
-		std::string input = R"(    "unclosed string )";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"(    "unclosed string )" };
 
-		CHECK_NEXT_EMPTY_TOKEN( 0 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Escaping" )
 	{
-		std::string input = R"("X\"")";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"("X\"")" };
 
-		CHECK_NEXT_TOKEN( "X\\\"", 1 );
-		CHECK_NEXT_EMPTY_TOKEN( 1 );
+		CHECK_NEXT_TOKEN( "X\\\"" );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Brackets test" )
 	{
-		std::string input = R"(token1 {token2} {token3;token3} {})";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"(token1 {token2} {token3;token3} {})" };
 
-		CHECK_NEXT_TOKEN( "token1", 1 );
-		CHECK_NEXT_TOKEN( "token2", 2 );
-		CHECK_NEXT_TOKEN( "token3;token3", 3 );
-		CHECK_NEXT_TOKEN( "", 4 );
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2" );
+		CHECK_NEXT_TOKEN( "token3;token3" );
+		CHECK_NEXT_TOKEN( "" );
 
-		CHECK_NEXT_EMPTY_TOKEN( 4 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Nested brackets test" )
 	{
-		std::string input = R"(token1 {token2 {token3}, token2_end}, token4)";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"(token1 {token2 {token3}, token2_end}, token4)" };
 
-		CHECK_NEXT_TOKEN( "token1", 1 );
-		CHECK_NEXT_TOKEN( "token2 {token3}, token2_end", 2 );
-		CHECK_NEXT_TOKEN( "token4", 3 );
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2 {token3}, token2_end" );
+		CHECK_NEXT_TOKEN( "token4" );
 
-		CHECK_NEXT_EMPTY_TOKEN( 3 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "One big nest" )
 	{
-		std::string input = R"({{nested {brackets {1 {2 {3 {4}}}}} test} inside})";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"({{nested {brackets {1 {2 {3 {4}}}}} test} inside})" };
 
-		CHECK_NEXT_TOKEN( "{nested {brackets {1 {2 {3 {4}}}}} test} inside", 1 );
+		CHECK_NEXT_TOKEN( "{nested {brackets {1 {2 {3 {4}}}}} test} inside" );
 
-		CHECK_NEXT_EMPTY_TOKEN( 1 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Unclosed brackets" )
 	{
-		std::string input = R"(token1 {token2 {token3} token2_end token4)";
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
-		REQUIRE( tokenizer.count == 0 );
+		conco::tokenizer tokenizer{ R"(token1 {token2 {token3} token2_end token4)" };
 
-		CHECK_NEXT_TOKEN( "token1", 1 );
+		CHECK_NEXT_TOKEN( "token1" );
 
-		CHECK_NEXT_EMPTY_TOKEN( 1 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Equal sign" )
 	{
 		conco::tokenizer tokenizer( "a=b c =d;e" );
-		REQUIRE( tokenizer.count == 0 );
 
-		CHECK_NEXT_TOKEN( "a", 1 );
-		CHECK_NEXT_TOKEN( "=", 2 );
-		CHECK_NEXT_TOKEN( "b", 3 );
-		CHECK_NEXT_TOKEN( "c", 4 );
-		CHECK_NEXT_TOKEN( "=", 5 );
-		CHECK_NEXT_TOKEN( "d", 6 );
-		CHECK_NEXT_EMPTY_TOKEN( 6 );
+		CHECK_NEXT_TOKEN( "a" );
+		CHECK_NEXT_TOKEN( "=" );
+		CHECK_NEXT_TOKEN( "b" );
+		CHECK_NEXT_TOKEN( "c" );
+		CHECK_NEXT_TOKEN( "=" );
+		CHECK_NEXT_TOKEN( "d" );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Mixed tokens" )
 	{
-		std::string input = R"(
+		conco::tokenizer tokenizer{ R"(
 			first_token
 			"second token"
 			"third token with {braces}"
 			{fourth_token with 'quotes', {braces} and "quoted {braces}"}
 			fifth_token
-			)";
+			)" };
 
-		conco::tokenizer tokenizer{ { input.data(), input.size() + 1 } };
+		CHECK_NEXT_TOKEN( "first_token" );
+		CHECK_NEXT_TOKEN( "second token" );
+		CHECK_NEXT_TOKEN( "third token with {braces}" );
+		CHECK_NEXT_TOKEN( "fourth_token with 'quotes', {braces} and \"quoted {braces}\"" );
+		CHECK_NEXT_TOKEN( "fifth_token" );
 
-		REQUIRE( tokenizer.count == 0 );
-
-		CHECK_NEXT_TOKEN( "first_token", 1 );
-		CHECK_NEXT_TOKEN( "second token", 2 );
-		CHECK_NEXT_TOKEN( "third token with {braces}", 3 );
-		CHECK_NEXT_TOKEN( "fourth_token with 'quotes', {braces} and \"quoted {braces}\"", 4 );
-		CHECK_NEXT_TOKEN( "fifth_token", 5 );
-
-		CHECK_NEXT_EMPTY_TOKEN( 5 );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 }
 
@@ -453,6 +429,30 @@ TEST_SUITE( "Tail arguments" )
 		REQUIRE( std::string_view( buffer ) == "15" );
 
 		CHECK( commands[0].desc.has_tail_args == true );
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST_SUITE( "std::optional<T>" )
+{
+	int foo( std::optional<int> x )
+	{
+		return x.value_or( 42 );
+	}
+
+	TEST_CASE( "std::optional<T>" )
+	{
+		static const conco::command commands[] = {
+			{ foo, "foo x;Return the value of x or 42 if not provided" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "foo 100", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "100" );
+
+		CHECK( execute( commands, "foo", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "42" );
 	}
 }
 

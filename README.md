@@ -7,7 +7,7 @@ It helps you automatically convert a line of text like this:
 
 ... into actual C/C++ function call like this:
 ```cpp
-void some_command_name(int a, const char *str, int c)
+void some_command_name(int a, std::string_view b, int c)
 {
 	// ...
 }
@@ -38,7 +38,7 @@ int sum(int a, int b) { return a + b; }
 int main()
 {
 	// List of available commands
-	conco::command commands[] = {
+	const conco::command commands[] = {
 		{ log_enable, "log.enable;Enable logging" },
 		{ sum, "sum;Sum of two integers" }
 	};
@@ -65,14 +65,14 @@ int multiply(int a, int b, void *user_data)
 
 int main()
 {
-	conco::command commands[] = {
+	const conco::command commands[] = {
 		{ multiply, "multiply" }
 	};
 
 	int factor = 2;
 	char buffer[256] = { 0 };
 
-	// Calls `multiply(&factor, 3, 4)` and writes stringified result to `buffer`
+	// Calls `multiply(3, 4, &factor)` and writes stringified result to `buffer`
 	conco::execute(commands, "multiply 3 4", buffer, &factor);
 	std::println("{}", buffer); // Outputs: 24
 }
@@ -91,18 +91,18 @@ int main()
 {
 	calculator calc;
 
-	conco::command commands[] = {
+	const conco::command commands[] = {
 		conco::method<&calculator::add>{ calc, "add" },
 		conco::method<&calculator::sub>{ calc, "sub" },
 	};
 
 	char buffer[256] = { 0 };
 
-	// Calls `calc.add(10, 5)` and writes stringified result to `buffer`
+	// Calls `calc.add(10, 5)`
 	conco::execute(commands, "add 10 5", buffer);
 	std::println("{}", buffer); // Outputs: 15
 	
-	// Calls `calc.sub(10, 5)` and writes stringified result to `buffer`
+	// Calls `calc.sub(10, 5)`
 	conco::execute(commands, "sub 10 5", buffer);
 	std::println("{}", buffer); // Outputs: 5
 }
@@ -115,7 +115,7 @@ int sum_four(int a, int b, int c, int d) { return a + b + c + d; }
 
 int main()
 {
-	conco::command commands[] = {
+	const conco::command commands[] = {
 		{ sum_four, "sum_four x=1 y=2 z=3 w=4;Sum of four integers" }
 	};
 

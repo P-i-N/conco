@@ -75,40 +75,6 @@ struct command final
 		return i == name.size() && tokenizer::is_ident_term( name_and_desc[i] );
 	}
 
-	// Extracts command name (without argument names and description)
-	std::string_view name() const noexcept
-	{
-		size_t i = 0;
-		while ( name_and_desc[i] && !tokenizer::is_ident_term( name_and_desc[i] ) )
-			++i;
-
-		return std::string_view( name_and_desc, i );
-	}
-
-	// Extracts optional argument names (text between command name and semicolon)
-	std::string_view arg_names() const noexcept
-	{
-		size_t i = 0;
-		while ( name_and_desc[i] && !tokenizer::is_ident_term( name_and_desc[i] ) )
-			++i;
-
-		size_t start = i;
-		while ( name_and_desc[i] && name_and_desc[i] != ';' )
-			++i;
-
-		return std::string_view( name_and_desc + start, i - start );
-	}
-
-	// Extracts command description (text after semicolon)
-	std::string_view description() const noexcept
-	{
-		const char *sep = std::strchr( name_and_desc, ';' );
-		if ( !sep )
-			return {};
-
-		return std::string_view( sep + 1 );
-	}
-
 private:
 	template <typename C>
 	command( const C &ctx, const descriptor &d, const char *n )
@@ -127,19 +93,12 @@ private:
  */
 struct output
 {
-	std::span<char> buffer;                // Buffer for stringified command result
-	const command *cmd = nullptr;          // Executed command, `nullptr` = not found
-	uint32_t arg_error_mask : 30 = 0;      // Bitmask of argument parsing errors
-	bool not_enough_arguments : 1 = false; // Whether there were not enough arguments
-	bool result_error : 1 = false;         // Result stringification failed (does not mean execution failed!)
-
-	void reset( const command *c = nullptr ) noexcept
-	{
-		cmd = c;
-		arg_error_mask = 0;
-		not_enough_arguments = false;
-		result_error = false;
-	}
+	std::span<char> buffer;            // Buffer for stringified command result
+	const command *cmd = nullptr;      // Executed command, `nullptr` = not found
+	uint32_t arg_error_mask = 0;       // Bitmask of argument parsing errors
+	uint8_t arg_count = 0;             // Number of successfuly parsed arguments
+	bool not_enough_arguments = false; // Whether there were not enough arguments
+	bool result_error = false;         // Result stringification failed (does not mean execution failed!)
 
 	bool has_error() const noexcept { return arg_error_mask || not_enough_arguments || result_error; }
 };
@@ -160,6 +119,22 @@ struct context final
 	tokenizer default_args;            // Tokenizer for default arguments (if any)
 	output &out;                       // Result of the command execution
 	void *user_data;                   // User data, will be passed to `void*` args in command functions
+
+	token next_arg() noexcept
+	{
+		token default_value = std::nullopt;
+		if ( default_args.next() ) // Consume optional argument name
+		{
+			if ( default_args.consume_char_if( '=' ) )
+				default_value = default_args.next();
+		}
+
+		token arg = args.next();
+		if ( !arg && default_value )
+			arg = default_value;
+
+		return arg;
+	}
 };
 
 /**
@@ -223,6 +198,11 @@ template <typename T> struct type_parser
 	static constexpr std::string_view name = {};  // Empty name for unknown types
 };
 
+template <typename T> struct type_parser<std::optional<T>>
+{
+	static constexpr std::string_view name = type_parser<T>::name;
+};
+
 } // namespace conco
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -243,6 +223,14 @@ struct type_parser_helper<T>
 {
 	using arg_tuple_type = T;                      // As-is, does not appear in args tuple anyway
 	static constexpr size_t command_arg_count = 0; // Not specialized, does not consume
+};
+
+template <typename T> struct std_optional_helper : std::false_type
+{};
+
+template <typename U> struct std_optional_helper<std::optional<U>> : std::true_type
+{
+	using type = U;
 };
 
 template <typename F> struct command_traits;
@@ -290,30 +278,35 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
 	// `context` only allowed as const ref, so the user can't modify it from inside command functions
 	else if constexpr ( std::is_same_v<T, const context &> )
 		return ctx;
+	// std::optional<U>
+	else if constexpr ( std_optional_helper<T>::value )
+	{
+		if ( token arg = ctx.next_arg(); arg )
+		{
+			using U = typename std_optional_helper<T>::type;
+			if ( auto parsed_opt = type_parser<U>::from_string( *arg ); parsed_opt )
+			{
+				++ctx.out.arg_count;
+				return *parsed_opt;
+			}
+
+			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ctx.out.arg_count );
+		}
+
+		return std::nullopt;
+	}
 	// Everything else is parsed and converted from string into the desired type
 	else
 	{
-		token default_value = std::nullopt;
-		if ( ctx.default_args.next() ) // Consume optional argument name
-		{
-			if ( ctx.default_args.next_char_is( '=' ) )
-			{
-				ctx.default_args.next(); // Consume '=' token
-				default_value = ctx.default_args.next();
-			}
-		}
-
-		token arg = ctx.args.next();
-		if ( !arg && default_value )
-			arg = default_value;
-
-		if ( arg )
+		if ( token arg = ctx.next_arg(); arg )
 		{
 			if ( auto parsed_opt = type_parser<T>::from_string( *arg ); parsed_opt )
+			{
+				++ctx.out.arg_count;
 				return *parsed_opt;
+			}
 
-			size_t current_cmd_arg_index = ctx.args.count - 2; // +1 for cmd name token, +1 for last `next`
-			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << current_cmd_arg_index );
+			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ctx.out.arg_count );
 		}
 		else
 		{
@@ -404,14 +397,29 @@ struct method_invoker<const C, M, RT ( C::* )( Args... ) const> : method_invoker
 {};
 
 template <typename C, auto M, typename RT, typename... Args>
+struct method_invoker<const C, M, RT ( C::* )( Args... ) const noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
+{};
+
+template <typename C, auto M, typename RT, typename... Args>
 struct method_invoker<C, M, RT ( C::* )( Args... ) const> : method_invoker<C, M, RT ( C::* )( Args... )>
+{};
+
+template <typename C, auto M, typename RT, typename... Args>
+struct method_invoker<C, M, RT ( C::* )( Args... ) const noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
 {};
 
 template <typename C, auto M, typename RT, typename... Args>
 struct method_invoker<const C, M, RT ( C::* )( Args... )> : method_invoker<C, M, RT ( C::* )( Args... )>
 {
-	// You are probably trying to create `command` for a const method, but used non-const object instance!
-	static_assert( false, "Non-const method invoker instantiated for const method pointer!" );
+	// You are probably trying to create `command` for a non-const method, but used const object instance!
+	static_assert( false, "Non-const method invoker instantiated for const instance!" );
+};
+
+template <typename C, auto M, typename RT, typename... Args>
+struct method_invoker<const C, M, RT ( C::* )( Args... ) noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
+{
+	// You are probably trying to create `command` for a non-const method, but used const object instance!
+	static_assert( false, "Non-const noexcept method invoker instantiated for const instance!" );
 };
 
 } // namespace conco::detail
@@ -454,7 +462,7 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 		tokenizer default_args( cmd_iter->name_and_desc + command_name.size() );
 		context ctx = { commands, cmd_line, command_name, tok, default_args, out, user_data };
 
-		out.reset( &*cmd_iter );
+		out = { out.buffer, &*cmd_iter };
 
 		if ( out.cmd->desc.invoker( ctx ) )
 			return result::success;
