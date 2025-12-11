@@ -151,6 +151,23 @@ TEST_SUITE( "Tokenizer tests" )
 
 		CHECK_NEXT_EMPTY_TOKEN;
 	}
+
+	TEST_CASE( "Semicolon stop" )
+	{
+		std::string input = R"(token1 token2;tokenizer should not touch this part)";
+		auto semicolon_pos = input.find( ';' );
+		REQUIRE( semicolon_pos != std::string::npos );
+
+		conco::tokenizer tokenizer{ input };
+
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2" );
+		CHECK_NEXT_EMPTY_TOKEN;
+
+		// TODO
+		CHECK( tokenizer.text.empty() );
+		CHECK( tokenizer.text.data() == input.data() + semicolon_pos );
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,7 +213,7 @@ TEST_SUITE( "Simple setter" )
 	TEST_CASE( "Simple setter" )
 	{
 		static const conco::command commands[] = {
-			{ set, "set;Set value" },
+			{ set, "set", "Set value" },
 		};
 
 		REQUIRE( value == 1 );
@@ -223,9 +240,9 @@ TEST_SUITE( "Capture results" )
 	TEST_CASE( "Capture results" )
 	{
 		static const conco::command commands[] = {
-			{ sum, "sum;Sum of two values" },
-			{ +[]( int x, int y ) { return x * y; }, "mul;Multiply two values" },
-			{ &c_str, "c_str;Return C string" },
+			{ sum, "sum", "Sum of two values" },
+			{ +[]( int x, int y ) { return x * y; }, "mul", "Multiply two values" },
+			{ &c_str, "c_str", "Return C string" },
 		};
 
 		char buffer[64] = { 0 };
@@ -254,7 +271,7 @@ TEST_SUITE( "Pass user data" )
 	TEST_CASE( "Pass user data" )
 	{
 		static const conco::command commands[] = {
-			{ mul, "mul;Multiply two values with factor" },
+			{ mul, "mul", "Multiply two values with factor" },
 		};
 
 		CHECK( commands[0].desc.arg_count == 3 );
@@ -339,7 +356,8 @@ TEST_SUITE( "Default arguments" )
 	{
 		static const conco::command commands[] = {
 			{ +[]( int x, int y, int z, int w ) { return x + y + z + w; },
-			  "bar x=1 y = 2 z= 3 w =4;Compute sum of four integers" },
+			  "bar x=1 y = 2 z= 3 w =4",
+			  "Compute sum of four integers" },
 		};
 
 		char buffer[64] = { 0 };
@@ -367,8 +385,8 @@ TEST_SUITE( "Overloading" )
 	TEST_CASE( "Overloading" )
 	{
 		static const conco::command commands[] = {
-			{ +[]( int x, int y ) { return x + y; }, "compute x y=100;Compute sum of two integers" },
-			{ +[]( std::string_view str ) { return str.size(); }, "compute;Compute length of a string" },
+			{ +[]( int x, int y ) { return x + y; }, "compute x y=100", "Compute sum of two integers" },
+			{ +[]( std::string_view str ) { return str.size(); }, "compute", "Compute length of a string" },
 		};
 
 		char buffer[64] = { 0 };
@@ -421,7 +439,7 @@ TEST_SUITE( "Tail arguments" )
 
 	TEST_CASE( "Tail arguments" )
 	{
-		static const conco::command commands[] = { { sum_all, "sum_all;Sum all arguments" } };
+		static const conco::command commands[] = { { sum_all, "sum_all", "Sum all arguments" } };
 
 		char buffer[64] = { 0 };
 
@@ -444,7 +462,7 @@ TEST_SUITE( "std::optional<T>" )
 	TEST_CASE( "std::optional<T>" )
 	{
 		static const conco::command commands[] = {
-			{ foo, "foo x;Return the value of x or 42 if not provided" },
+			{ foo, "foo x", "Return the value of x or 42 if not provided" },
 		};
 
 		char buffer[64] = { 0 };
@@ -468,7 +486,7 @@ TEST_SUITE( "Error handling" )
 	TEST_CASE( "Result" )
 	{
 		static const conco::command commands[] = {
-			{ divide, "divide;Divide two integers" },
+			{ divide, "divide", "Divide two integers" },
 		};
 
 		char buffer[64] = { 0 };
@@ -496,7 +514,7 @@ TEST_SUITE( "Error handling" )
 	TEST_CASE( "Exceptions" )
 	{
 		static const conco::command commands[] = {
-			{ throwing_divide, "divide;Divide two integers" },
+			{ throwing_divide, "divide", "Divide two integers" },
 		};
 
 		char buffer[64] = { 0 };

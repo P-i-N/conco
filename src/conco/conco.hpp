@@ -57,13 +57,16 @@ struct command final
 	// separated by semicolon ("sum x y;Sum two integers")
 	const char *name_and_desc = nullptr;
 
+	// Optional help text for this command
+	const char *help = nullptr;
+
 	// Constructors for function commands. For method commands, use `method<>()` helper function.
 	template <typename F>
 	  requires std::is_function_v<std::remove_pointer_t<F>>
-	command( F func, const char *n );
+	command( F func, const char *n, const char *h = nullptr );
 
 	// Temporaries are not allowed
-	template <typename C> command( const C &&, const descriptor &, const char * ) = delete;
+	template <typename C> command( const C &&, const descriptor &, const char *n, const char *h = nullptr ) = delete;
 
 	// Compares only the command name part, ignoring optional argument names and description
 	bool operator==( std::string_view name ) const noexcept
@@ -77,12 +80,12 @@ struct command final
 
 private:
 	template <typename C>
-	command( const C &ctx, const descriptor &d, const char *n )
-	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_desc( n )
+	command( const C &ctx, const descriptor &d, const char *n, const char *h = nullptr )
+	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_desc( n ), help( h )
 	{}
 
-	template <auto M, typename C> friend command method( C &ctx, const char *n );
-	template <auto M, typename C> friend command method( const C &ctx, const char *n );
+	template <auto M, typename C> friend command method( C &ctx, const char *name, const char *help );
+	template <auto M, typename C> friend command method( const C &ctx, const char *name, const char *help );
 };
 
 /**
@@ -430,18 +433,18 @@ namespace conco {
 
 template <typename F>
   requires std::is_function_v<std::remove_pointer_t<F>>
-inline command::command( F func, const char *n )
-  : target( ( void * )func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n )
+inline command::command( F func, const char *n, const char *h )
+  : target( ( void * )func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_desc( n ), help( h )
 {}
 
-template <auto M, typename C> command method( C &ctx, const char *n )
+template <auto M, typename C> command method( C &ctx, const char *name, const char *help = nullptr )
 {
-	return { ctx, descriptor::get<detail::method_invoker<C, M, decltype( M )>>(), n };
+	return { ctx, descriptor::get<detail::method_invoker<C, M, decltype( M )>>(), name, help };
 }
 
-template <auto M, typename C> command method( const C &ctx, const char *n )
+template <auto M, typename C> command method( const C &ctx, const char *name, const char *help = nullptr )
 {
-	return { ctx, descriptor::get<detail::method_invoker<const C, M, decltype( M )>>(), n };
+	return { ctx, descriptor::get<detail::method_invoker<const C, M, decltype( M )>>(), name, help };
 }
 
 inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out, void *user_data )
