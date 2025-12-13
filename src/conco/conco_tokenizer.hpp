@@ -9,8 +9,8 @@ using token = std::optional<std::string_view>;
 
 /**
  * Very simple tokenizer that splits a string into a substrings (tokens) based on whitespace, commas
- * or semicolons. Single and double quotes are supported to allow tokens with spaces. Enclosing and
- * nesting tokens between brackets {} is also supported.
+ * or semicolons. Single and double quotes are supported to allow longer tokens with spaces.
+ * Enclosing and nesting tokens between brackets {} is also supported.
  *
  * Examples:
  *   "a b, c;d,e f"      -> "a", "b", "c", "d", "e", "f"
@@ -18,6 +18,24 @@ using token = std::optional<std::string_view>;
  *   "a 'b c';d"         -> "a", "b c", "d"
  *   "a {b c {d e} f} g" -> "a", "b c {d e} f", "g"
  *   "a {b '{c d}' e} f" -> "a", "b '{c d}' e", "f"
+ *
+ * Special characters:
+ *   ';' -> indicates end of command, tokenizer will stop processing further input
+ *   '=' -> single-character token, returned as-is (used for key-value assignments)
+ *   '{' -> starts a block token, ends at matching '}'
+ *   '"' or ''' -> starts a quoted string token, ends at matching quote
+ *   '\' -> backslash escape - next character is treated literally
+ *
+ * When the tokenizer is unable to produce a valid token, it returns `std::nullopt`.
+ * This can happen because:
+ *   - input `text` string is empty
+ *   - quotes or brackets are not properly closed
+ *   - semicolon is encountered (indicates end of command)
+ *
+ * Important note: the tokenizer is "zero-copy", meaning that it does not allocate or copy anything.
+ * It will always produce string views into the original input string. Therefore, if there are any
+ * escape sequences (like `\'` or `\"`), the backslash character will be preserved in the output
+ * and it's up to the user to handle it appropriately.
  */
 struct tokenizer
 {
@@ -31,7 +49,6 @@ struct tokenizer
 
 	std::string_view text;
 
-	tokenizer() = default;
 	tokenizer( const tokenizer & ) = default;
 	tokenizer( tokenizer && ) = default;
 
@@ -68,32 +85,28 @@ struct tokenizer
 		return false;
 	}
 
-	std::optional<std::string_view> next() noexcept
+	token next() noexcept
 	{
 		if ( text.empty() )
 			return std::nullopt;
 
 		switch ( text[0] )
 		{
-			default: return parse_identifier();
-
 			case '"':
 			case '\'': return parse_quoted_string();
+
 			case '{': return parse_block();
+			case '=': return extract_token( 1, false );
 			case ';': return std::nullopt;
 
-			case '=': break;
+			default: break;
 		}
 
-		std::string_view single_char_token = text.substr( 0, 1 );
-		text.remove_prefix( 1 );
-
-		consume_whitespace();
-		return single_char_token;
+		return parse_identifier();
 	}
 
 private:
-	std::optional<std::string_view> extract_token( size_t length, bool trim_ends )
+	token extract_token( size_t length, bool trim_ends )
 	{
 		if ( length > text.size() )
 		{
@@ -108,7 +121,7 @@ private:
 		return token;
 	}
 
-	std::optional<std::string_view> parse_identifier()
+	token parse_identifier()
 	{
 		char prev_ch = '\0';
 
@@ -132,7 +145,7 @@ private:
 		return extract_token( i, false );
 	}
 
-	std::optional<std::string_view> parse_quoted_string()
+	token parse_quoted_string()
 	{
 		char prev_ch = '\0';
 		char quote_char = text[0];
@@ -167,7 +180,7 @@ private:
 		return extract_token( i, true );
 	}
 
-	std::optional<std::string_view> parse_block()
+	token parse_block()
 	{
 		size_t depth = 1;
 		char prev_ch = '\0';
@@ -213,8 +226,6 @@ private:
 
 		return extract_token( i, true );
 	}
-
-private:
 };
 
 } // namespace conco

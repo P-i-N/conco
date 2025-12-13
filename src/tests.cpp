@@ -151,6 +151,35 @@ TEST_SUITE( "Tokenizer tests" )
 
 		CHECK_NEXT_EMPTY_TOKEN;
 	}
+
+	TEST_CASE( "Semicolon stop" )
+	{
+		std::string input = R"(token1 token2;tokenizer should not touch this part)";
+		auto semicolon_pos = input.find( ';' );
+		REQUIRE( semicolon_pos != std::string::npos );
+
+		conco::tokenizer tokenizer{ input };
+
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2" );
+		CHECK_NEXT_EMPTY_TOKEN;
+
+		// TODO
+		CHECK( !tokenizer.text.empty() );
+		CHECK( tokenizer.text.data() == input.data() + semicolon_pos );
+	}
+
+	TEST_CASE( "Escaping" )
+	{
+		conco::tokenizer tokenizer( "\\'token xxx \\\\'yyy' \\;semicolon" );
+
+		CHECK_NEXT_TOKEN( "\\'token" );
+		CHECK_NEXT_TOKEN( "xxx" );
+		CHECK_NEXT_TOKEN( "\\\\" );
+		CHECK_NEXT_TOKEN( "yyy" );
+		CHECK_NEXT_TOKEN( "\\;semicolon" );
+		CHECK_NEXT_EMPTY_TOKEN;
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -158,7 +187,7 @@ TEST_SUITE( "Tokenizer tests" )
 #define CHECK_TYPE_PARSER_FROM_STRING( _Type, _Str, _ExpectedValue, _HasValue ) \
 	do \
 	{ \
-		auto opt = conco::type_parser<_Type>::from_string( _Str ); \
+		auto opt = conco::from_string( conco::tag<_Type>{}, _Str ); \
 		REQUIRE( opt.has_value() == _HasValue ); \
 		if ( _HasValue ) \
 			REQUIRE( *opt == _ExpectedValue ); \
@@ -323,7 +352,7 @@ TEST_SUITE( "Callback types" )
 		CHECK( commands[0].desc.command_arg_count == 2 );
 
 		char buffer[64] = { 0 };
-		CHECK( execute( commands, "add 100 250", buffer ) == conco::result::success );
+		CHECK( execute( commands, "add 100 250;", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "350" );
 
 		CHECK( execute( commands, "sub 500 123", buffer ) == conco::result::success );
@@ -410,7 +439,7 @@ TEST_SUITE( "Tail arguments" )
 		while ( ( token = args.next() ).has_value() )
 		{
 			int value = 0;
-			if ( auto value_opt = conco::type_parser<int>::from_string( *token ); value_opt.has_value() )
+			if ( auto value_opt = conco::from_string( conco::tag<int>{}, *token ); value_opt.has_value() )
 				value = *value_opt;
 
 			out += value;
@@ -515,5 +544,63 @@ TEST_SUITE( "Error handling" )
 		{
 			REQUIRE( false ); // Should not get there either!
 		}
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct point
+{
+	int x, y;
+};
+
+constexpr std::string_view type_name( conco::tag<point> ) noexcept
+{
+	return "point";
+}
+
+std::optional<point> from_string( conco::tag<point>, std::string_view str ) noexcept
+{
+	conco::tokenizer tokenizer{ str };
+
+	auto tx = tokenizer.next();
+	auto ty = tokenizer.next();
+	if ( !tx || !ty )
+		return std::nullopt;
+
+	auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx );
+	auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty );
+	if ( !ox || !oy )
+		return std::nullopt;
+
+	return point{ *ox, *oy };
+}
+
+bool to_chars( conco::tag<point>, std::span<char> buffer, point p ) noexcept
+{
+	auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
+	*r.out = '\0';
+	return true;
+}
+
+TEST_SUITE( "Custom types" )
+{
+	point add_points( point p1, point p2 )
+	{
+		return point{ p1.x + p2.x, p1.y + p2.y };
+	}
+
+	TEST_CASE( "Custom type" )
+	{
+		const conco::command commands[] = {
+			{ add_points, "add_points p1 p2={10 20};Add two points" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "add_points {1 2} {3 4}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{4 6}" );
+
+		CHECK( execute( commands, "add_points {5 6}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{15 26}" );
 	}
 }

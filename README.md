@@ -20,13 +20,13 @@ In another words - `conco` is primarily a command dispatcher, designed to take a
 ## Features
 
 * **Header-only**: The library is header-only, so you just need to include `conco.hpp`
-* **Simple**:  No dependencies, no memory allocations, no global state.
-* **Text-to-function mapping**: Map text commands to C/C++ functions with an associated name and description.
+* **Simple**: No dependencies, no memory allocations, no global state.
 * **Automatic argument parsing**: Arguments are automatically tokenized and converted from strings to the types required by the function parameters.
 * **Return value handling**: Captures the return value of the executed function and can stringify it into a user-provided buffer.
-* **Custom types**: User can define specialized conversion functions to enable argument parsing for custom types.
-* **Default arguments**: Supports commands with default arguments.
-* **Overloading**: Supports function overloading by allowing multiple functions with the same name, but different set of parameters.
+* **Custom types**: User can define specialized conversion functions to enable argument parsing for own types.
+* **Member functions**: Supports binding member functions to commands, allowing using methods of classes/struct as commands.
+* **Default arguments**: Commands can have default arguments, which are used when the user omits them.
+* **Overloading**: Supports simple overloading by allowing multiple commands with the same name, but different parameter sets.
 
 ## Basic Example
 
@@ -144,13 +144,14 @@ void help(const conco::context &ctx)
 {
 	for (const auto &cmd : ctx.commands)
 	{
-		// ... Print command name, description and other info
+		// Print command name, argument list and other info
+		// Use `conco::command::desc` field to access reflection metadata
 	}
 }
 
 int main()
 {
-	conco::command commands[] = {
+	const conco::command commands[] = {
 		{ help, "help;Displays this help message" },
 		// Other commands...
 	};
@@ -180,5 +181,66 @@ int main()
 	conco::execute(commands, "log.enable");           // Calls log_enable_a()
 	conco::execute(commands, "log.enable 2");         // Calls log_enable_b()
 	conco::execute(commands, "log.enable 3 log.txt"); // Calls log_enable_c()
+}
+```
+
+## Custom complex types
+
+```cpp
+struct point
+{
+	int x;
+	int y;
+};
+
+point add_points(const point &a, const point &b)
+{
+	return { a.x + b.x, a.y + b.y };
+}
+
+// Must be `constexpr`
+constexpr std::string_view type_name( conco::tag<point> ) noexcept { return "point"; }
+
+// Conversion from string to `point`. The string will be in format "x y", e.g. "10 20"
+std::optional<point> from_string( conco::tag<point>, std::string_view str ) noexcept
+{
+	conco::tokenizer tokenizer{ str }; // Let's use `conco`'s built-in tokenizer
+
+	auto tx = tokenizer.next(); // Get first token (x)
+	auto ty = tokenizer.next(); // Get second token (y)
+	if ( !tx || !ty )
+		return std::nullopt; // Not enough tokens
+
+	auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx ); // Convert x token to int
+	auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty ); // Convert y token to int
+	if ( !ox || !oy )
+		return std::nullopt; // Conversion failed
+
+	return point{ *ox, *oy }; // Return the parsed point
+}
+
+// Conversion from `point` to string. The output format will be "{x y}", e.g. "{10 20}"
+bool to_chars( conco::tag<point>, std::span<char> buffer, point p ) noexcept
+{
+	auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
+	*r.out = '\0';
+	return true;
+}
+
+int main()
+{
+	const conco::command commands[] = {
+		{ add_points, "add_points a b={0 0};Add two points" } // `b` has a default value of `{0 0}`
+	};
+
+	char buffer[256] = { 0 };
+
+	// Calls `add_points({10, 20}, {30, 40})`
+	conco::execute(commands, "add_points {10 20} {30 40}", buffer);
+	std::println("{}", buffer); // Outputs: {40 60}
+
+	// Calls `add_points({10, 20}, {0, 0})`, uses default value for `b`
+	conco::execute(commands, "add_points {10 20}", buffer);
+	std::println("{}", buffer); // Outputs: {10 20}
 }
 ```
