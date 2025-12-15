@@ -202,6 +202,8 @@ private:
 				{
 					if ( ch == '"' || ch == '\'' )
 						quote_char = ch;
+					else if ( ch == ';' )
+						break;
 					else if ( ch == '{' )
 						++depth;
 					else if ( ch == '}' && !( --depth ) )

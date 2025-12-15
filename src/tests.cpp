@@ -81,11 +81,11 @@ TEST_SUITE( "Tokenizer tests" )
 
 	TEST_CASE( "Brackets test" )
 	{
-		conco::tokenizer tokenizer{ R"(token1 {token2} {token3;token3} {})" };
+		conco::tokenizer tokenizer{ R"(token1 {token2} {token3,token3} {})" };
 
 		CHECK_NEXT_TOKEN( "token1" );
 		CHECK_NEXT_TOKEN( "token2" );
-		CHECK_NEXT_TOKEN( "token3;token3" );
+		CHECK_NEXT_TOKEN( "token3,token3" );
 		CHECK_NEXT_TOKEN( "" );
 
 		CHECK_NEXT_EMPTY_TOKEN;
@@ -167,6 +167,34 @@ TEST_SUITE( "Tokenizer tests" )
 		// TODO
 		CHECK( !tokenizer.text.empty() );
 		CHECK( tokenizer.text.data() == input.data() + semicolon_pos );
+	}
+
+	TEST_CASE( "Semicolon inside block" )
+	{
+		conco::tokenizer tokenizer{ R"(token1 {token2; should not be visible} token3)" };
+
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_EMPTY_TOKEN; // Semicolon inside block produces unclosed block token
+	}
+
+	TEST_CASE( "Escaped semicolon inside block" )
+	{
+		conco::tokenizer tokenizer{ R"(token1 {token2\; should be visible} token3)" };
+
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2\\; should be visible" );
+		CHECK_NEXT_TOKEN( "token3" );
+		CHECK_NEXT_EMPTY_TOKEN;
+	}
+
+	TEST_CASE( "Semicolon inside quotes" )
+	{
+		conco::tokenizer tokenizer{ R"(token1 'token2; should be visible' token3)" };
+
+		CHECK_NEXT_TOKEN( "token1" );
+		CHECK_NEXT_TOKEN( "token2; should be visible" );
+		CHECK_NEXT_TOKEN( "token3" );
+		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Escaping" )

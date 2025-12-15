@@ -25,8 +25,7 @@ In another words - `conco` is primarily a command dispatcher, designed to take a
 * **Return value handling**: Captures the return value of the executed function and can stringify it into a user-provided buffer.
 * **Custom types**: User can define specialized conversion functions to enable argument parsing for own types.
 * **Member functions**: Supports binding member functions to commands, allowing using methods of classes/struct as commands.
-* **Default arguments**: Commands can have default arguments, which are used when the user omits them.
-* **Overloading**: Supports simple overloading by allowing multiple commands with the same name, but different parameter sets.
+* **Default arguments & overloading**: Multiple commands with the same name, but different parameter sets can be defined, as well as default argument values.
 
 ## Basic Example
 
@@ -54,31 +53,9 @@ int main()
 }
 ```
 
-## Passing `void *` user data
-
-```cpp
-int multiply(int a, int b, void *user_data)
-{
-	int factor = *static_cast<int *>(user_data);
-	return (a * b) * factor;
-}
-
-int main()
-{
-	const conco::command commands[] = {
-		{ multiply, "multiply" }
-	};
-
-	int factor = 2;
-	char buffer[256] = { 0 };
-
-	// Calls `multiply(3, 4, &factor)` and writes stringified result to `buffer`
-	conco::execute(commands, "multiply 3 4", buffer, &factor);
-	std::println("{}", buffer); // Outputs: 24
-}
-```
-
 ## Member function commands
+
+You can bind member functions of a class/struct as commands using `conco::method` helper template:
 
 ```cpp
 struct calculator
@@ -108,7 +85,35 @@ int main()
 }
 ```
 
+## Passing `void *` user data
+
+Your command functions can accept an optional `(const) void *` parameter, which will be passed as a user-defined pointer when executing the command. This is mostly a fallback mechanism for easier integration with existing plain C APIs that use `void *` user data pointers. You should prefer member functions for more idiomatic C++ code.
+
+```cpp
+int multiply(int a, int b, void *user_data)
+{
+	int factor = *static_cast<int *>(user_data);
+	return (a * b) * factor;
+}
+
+int main()
+{
+	const conco::command commands[] = {
+		{ multiply, "multiply" }
+	};
+
+	int factor = 2;
+	char buffer[256] = { 0 };
+
+	// Calls `multiply(3, 4, &factor)` and writes stringified result to `buffer`
+	conco::execute(commands, "multiply 3 4", buffer, &factor);
+	std::println("{}", buffer); // Outputs: 24
+}
+```
+
 ## Default arguments
+
+Commands can have list of argument names with optional default values specified as part of the command name. During execution, if the user omits some arguments, the default values will be used - just like you would expect from normal C++ function default arguments.
 
 ```cpp
 int sum_four(int a, int b, int c, int d) { return a + b + c + d; }
@@ -137,7 +142,7 @@ int main()
 
 ## Implemnting `help` command
 
-You can access the list of available commands from within a command implementation by accepting a `conco::context` parameter.
+You can access the list of available commands from within a command implementation by accepting a `const conco::context &` parameter. From there, you can iterate over `ctx.commands` to get the list of all registered commands along with their metadata.
 
 ```cpp
 void help(const conco::context &ctx)
@@ -185,6 +190,17 @@ int main()
 ```
 
 ## Custom complex types
+
+When adding custom types, you need to provide following functions:
+* `type_name(conco::tag<T>)` - returns human readable name of the type
+* `from_string(conco::tag<T>, std::string_view)` - converts a string token to the custom type
+* `to_chars(conco::tag<T>, std::span<char>, T)` - converts the custom type to a string representation
+
+Providing `type_name` function is mandatory, while `from_string` and `to_chars` are only needed if you want to use the type as a command argument or return value.
+
+The extension mechanism relies on ADL (argument-dependent lookup) with `conco::tag<T>` wrapper type to allow defining the functions in the same namespace as the custom type.
+
+See the example below:
 
 ```cpp
 struct point
@@ -244,3 +260,15 @@ int main()
 	std::println("{}", buffer); // Outputs: {10 20}
 }
 ```
+
+## Tokenization rules
+
+The library splits input command lines into tokens using the following rules:
+* Tokens are separated by whitespace (spaces, tabs) or commas
+* Tokens can be enclosed in single (`'`) or double (`"`) quotes to include whitespace or special characters
+* Tokens can be enclosed in curly braces (`{}`) for building complex types (e.g. `{10 20}` for a point) - nesting is supported
+* Backslash (`\`) can be used in front of special characters to escape them (e.g. `\"` for a double quote character inside a double-quoted token)
+* Equal sign (`=`) is a token
+* Semicolon (`;`) is a terminating charater, tokenization stops when it is encountered
+
+Since the whole library is zero-copy and does not allocate memory, tokens are represented as `std::string_view` slices of the original input string. This means that escaped characters are not really unescaped in the tokens and user code must handle that if needed.

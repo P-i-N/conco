@@ -46,6 +46,13 @@ constexpr std::string_view type_name( tag<T> ) noexcept
 }
 
 template <typename T>
+  requires std::is_integral_v<T> && std::is_unsigned_v<T>
+constexpr std::string_view type_name( tag<T> ) noexcept
+{
+	return "uint";
+}
+
+template <typename T>
   requires std::is_integral_v<T>
 std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 {
