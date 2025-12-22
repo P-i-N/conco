@@ -62,8 +62,10 @@ struct command final
 	  requires std::is_function_v<std::remove_pointer_t<F>>
 	command( F func, const char *n );
 
-	// Temporaries are not allowed
-	template <typename C> command( const C &&, const descriptor &, const char * ) = delete;
+	// Constructors for callable objects/capturing lambda commands.
+	template <typename C>
+	  requires std::is_class_v<C>
+	command( C &callable, const char *n );
 
 	// Compares only the command name part, ignoring optional argument names and description
 	bool operator==( std::string_view name ) const noexcept
@@ -119,22 +121,6 @@ struct context final
 	tokenizer default_args;            // Tokenizer for default arguments (if any)
 	output &out;                       // Result of the command execution
 	void *user_data;                   // User data, will be passed to `void*` args in command functions
-
-	token next_arg() noexcept
-	{
-		token default_value = std::nullopt;
-		if ( default_args.next() ) // Consume optional argument name
-		{
-			if ( default_args.consume_char_if( '=' ) )
-				default_value = default_args.next();
-		}
-
-		token arg = args.next();
-		if ( !arg && default_value )
-			arg = default_value;
-
-		return arg;
-	}
 };
 
 /**
@@ -170,6 +156,12 @@ struct descriptor final
 			                               .has_tail_args = Traits::has_tail_args,
 			                               .has_result = Traits::has_result };
 
+		return desc;
+	}
+
+	static const descriptor &empty()
+	{
+		static const descriptor desc = {};
 		return desc;
 	}
 };
@@ -237,6 +229,28 @@ template <typename U> struct std_optional_helper<std::optional<U>> : std::true_t
 	using type = U;
 };
 
+template <typename T> struct signature_helper;
+
+template <typename C, typename RT, typename... Args> struct signature_helper<RT ( C::* )( Args... )>
+{
+	using type = RT( Args... );
+	static constexpr bool is_const = false;
+};
+
+template <typename C, typename RT, typename... Args>
+struct signature_helper<RT ( C::* )( Args... ) noexcept> : signature_helper<RT ( C::* )( Args... )>
+{};
+
+template <typename C, typename RT, typename... Args> struct signature_helper<RT ( C::* )( Args... ) const>
+{
+	using type = RT( Args... );
+	static constexpr bool is_const = true;
+};
+
+template <typename C, typename RT, typename... Args>
+struct signature_helper<RT ( C::* )( Args... ) const noexcept> : signature_helper<RT ( C::* )( Args... ) const>
+{};
+
 template <typename F> struct command_traits;
 
 // Reflects function/method signatures into information about arguments and return type
@@ -263,6 +277,25 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 };
 
 /**
+ * Extracts the next argument value from the command line or try to take one from default arguments.
+ */
+inline token next_arg_value( context &ctx ) noexcept
+{
+	token default_value = std::nullopt;
+	if ( ctx.default_args.next() ) // Consume optional argument name
+	{
+		if ( ctx.default_args.consume_char_if( '=' ) )
+			default_value = ctx.default_args.next();
+	}
+
+	token arg = ctx.args.next();
+	if ( !arg && default_value )
+		arg = default_value;
+
+	return arg;
+}
+
+/**
  * For generic types, extracts next argument from the command line and attempts to parse it
  * into the desired type. Some special "built-in" types are returned directly without parsing.
  */
@@ -271,7 +304,7 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
 	// C-style `void*` user data pointer passed as-is
 	if constexpr ( std::is_same_v<T, void *> || std::is_same_v<T, const void *> )
 		return ctx.user_data;
-	// `tokenizer` only allowed as whatever, it will only see remaining tail arguments
+	// `tokenizer` allowed as whatever, it will only see remaining tail arguments
 	else if constexpr ( std::is_same_v<std::remove_cvref_t<T>, tokenizer> )
 		return ctx.args;
 	// `output` only allowed as ref, because user *IS* expected to modify it
@@ -283,16 +316,15 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
 	// std::optional<U>
 	else if constexpr ( std_optional_helper<T>::value )
 	{
-		if ( token arg = ctx.next_arg(); arg )
+		if ( token arg = next_arg_value( ctx ); arg )
 		{
+			++ctx.out.arg_count;
+
 			using U = typename std_optional_helper<T>::type;
 			if ( auto parsed_opt = from_string( tag<U>{}, *arg ); parsed_opt )
-			{
-				++ctx.out.arg_count;
 				return *parsed_opt;
-			}
 
-			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ctx.out.arg_count );
+			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
 		}
 
 		return std::nullopt;
@@ -300,15 +332,14 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
 	// Everything else is parsed and converted from string into the desired type
 	else
 	{
-		if ( token arg = ctx.next_arg(); arg )
+		if ( token arg = next_arg_value( ctx ); arg )
 		{
-			if ( auto parsed_opt = from_string( tag<T>{}, *arg ); parsed_opt )
-			{
-				++ctx.out.arg_count;
-				return *parsed_opt;
-			}
+			++ctx.out.arg_count;
 
-			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ctx.out.arg_count );
+			if ( auto parsed_opt = from_string( tag<T>{}, *arg ); parsed_opt )
+				return *parsed_opt;
+
+			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
 		}
 		else
 		{
@@ -371,10 +402,33 @@ template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args.
 	}
 };
 
-template <typename C, auto M, typename F> struct method_invoker;
+template <typename C, typename F> struct callable_invoker_impl;
+
+template <typename C, typename RT, typename... Args>
+struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
+{
+	using traits = command_traits<RT( Args... )>;
+
+	static bool call( context &ctx )
+	{
+		auto args_tuple = make_args_tuple<Args...>( ctx );
+		if ( ctx.out.has_error() )
+			return false;
+
+		auto *obj = static_cast<C *>( ctx.out.cmd->target );
+		auto callable = [obj]( auto &&...args ) -> RT { return ( *obj )( std::forward<decltype( args )>( args )... ); };
+		return apply<RT>( ctx, callable, args_tuple );
+	}
+};
+
+template <typename C>
+struct callable_invoker : callable_invoker_impl<C, typename signature_helper<decltype( &C::operator() )>::type>
+{};
+
+template <typename C, auto M, typename F> struct method_invoker_impl;
 
 template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<C, M, RT ( C::* )( Args... )> : command_traits<RT( Args... )>
+struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
 {
 	using traits = command_traits<RT( Args... )>;
 
@@ -390,38 +444,12 @@ struct method_invoker<C, M, RT ( C::* )( Args... )> : command_traits<RT( Args...
 	}
 };
 
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<C, M, RT ( C::* )( Args... ) noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
-{};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<const C, M, RT ( C::* )( Args... ) const> : method_invoker<C, M, RT ( C::* )( Args... )>
-{};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<const C, M, RT ( C::* )( Args... ) const noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
-{};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<C, M, RT ( C::* )( Args... ) const> : method_invoker<C, M, RT ( C::* )( Args... )>
-{};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<C, M, RT ( C::* )( Args... ) const noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
-{};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<const C, M, RT ( C::* )( Args... )> : method_invoker<C, M, RT ( C::* )( Args... )>
+template <typename C, auto M>
+struct method_invoker : method_invoker_impl<C, M, typename signature_helper<decltype( M )>::type>
 {
-	// You are probably trying to create `command` for a non-const method, but used const object instance!
-	static_assert( false, "Non-const method invoker instantiated for const instance!" );
-};
-
-template <typename C, auto M, typename RT, typename... Args>
-struct method_invoker<const C, M, RT ( C::* )( Args... ) noexcept> : method_invoker<C, M, RT ( C::* )( Args... )>
-{
-	// You are probably trying to create `command` for a non-const method, but used const object instance!
-	static_assert( false, "Non-const noexcept method invoker instantiated for const instance!" );
+	using method_traits = signature_helper<decltype( M )>;
+	static_assert( !std::is_const_v<C> || method_traits::is_const,
+	               "Non-const method invoker instantiated for const instance!" );
 };
 
 } // namespace conco::detail
@@ -436,14 +464,20 @@ inline command::command( F func, const char *n )
   : target( ( void * )func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_args( n )
 {}
 
+template <typename C>
+  requires std::is_class_v<C>
+inline command::command( C &callable, const char *n )
+  : target( &callable ), desc( descriptor::get<detail::callable_invoker<C>>() ), name_and_args( n )
+{}
+
 template <auto M, typename C> command method( C &ctx, const char *n )
 {
-	return { ctx, descriptor::get<detail::method_invoker<C, M, decltype( M )>>(), n };
+	return { ctx, descriptor::get<detail::method_invoker<C, M>>(), n };
 }
 
 template <auto M, typename C> command method( const C &ctx, const char *n )
 {
-	return { ctx, descriptor::get<detail::method_invoker<const C, M, decltype( M )>>(), n };
+	return { ctx, descriptor::get<detail::method_invoker<const C, M>>(), n };
 }
 
 inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out, void *user_data )
@@ -492,4 +526,4 @@ inline result execute( std::span<const command> commands,
 
 } // namespace conco
 
-#include "conco_conversions.hpp"
+#include "conco_types.hpp"

@@ -80,8 +80,31 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	return out;
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 template <typename T>
-  requires std::is_integral_v<T>
+  requires std::is_floating_point_v<T>
+constexpr std::string_view type_name( tag<T> ) noexcept
+{
+	return "float";
+}
+
+template <typename T>
+  requires std::is_floating_point_v<T>
+std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
+{
+	T out = 0;
+	auto r = std::from_chars( str.data(), str.data() + str.size(), out );
+	if ( r.ec != std::errc() )
+		return std::nullopt;
+
+	return out;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+  requires std::is_integral_v<T> || std::is_floating_point_v<T>
 bool to_chars( tag<T>, std::span<char> buff, T value ) noexcept
 {
 	auto r = std::to_chars( buff.data(), buff.data() + buff.size() - 1, value ); // Leave space for null-terminator

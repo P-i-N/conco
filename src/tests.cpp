@@ -228,6 +228,8 @@ TEST_SUITE( "Type parsing tests" )
 		CHECK_TYPE_PARSER_FROM_STRING( int, "123", 123, true );
 		CHECK_TYPE_PARSER_FROM_STRING( int, "0x123", 0x123, true );
 		CHECK_TYPE_PARSER_FROM_STRING( int, "0b11001010", 0b11001010, true );
+		CHECK_TYPE_PARSER_FROM_STRING( float, "1.0", 1.0, true );
+		CHECK_TYPE_PARSER_FROM_STRING( double, "2.0", 2.0, true );
 		CHECK_TYPE_PARSER_FROM_STRING( int, "abc", 0, false );
 		CHECK_TYPE_PARSER_FROM_STRING( bool, "true", true, true );
 		CHECK_TYPE_PARSER_FROM_STRING( bool, "false", false, true );
@@ -374,6 +376,7 @@ TEST_SUITE( "Callback types" )
 		static const conco::command commands[] = {
 			{ +[]( int x, int y ) { return x + y; }, "add x y" },
 			{ +[]( int x, int y ) { return x - y; }, "sub x y" },
+			{ capturing_lambda, "add_capture x y" },
 		};
 
 		CHECK( commands[0].desc.arg_count == 2 );
@@ -385,6 +388,30 @@ TEST_SUITE( "Callback types" )
 
 		CHECK( execute( commands, "sub 500 123", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "377" );
+
+		CHECK( execute( commands, "add_capture 10 20", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "30" );
+	}
+
+	struct callable_struct
+	{
+		int operator()( int x, int y ) { return x * y; }
+	};
+
+	TEST_CASE( "Callable" )
+	{
+		callable_struct multiplier;
+
+		static const conco::command commands[] = {
+			{ multiplier, "mul x y" },
+		};
+
+		CHECK( commands[0].desc.arg_count == 2 );
+		CHECK( commands[0].desc.command_arg_count == 2 );
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "mul 12 34", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "408" );
 	}
 }
 
@@ -572,6 +599,37 @@ TEST_SUITE( "Error handling" )
 		{
 			REQUIRE( false ); // Should not get there either!
 		}
+	}
+
+	TEST_CASE( "Argument parsing errors" )
+	{
+		static const conco::command commands[] = {
+			{ +[]( int x, int y, int z, int w ) {}, "foo" },
+		};
+
+		char buffer[64] = { 0 };
+		conco::output out = { buffer };
+
+		CHECK( execute( commands, "foo 1 2 3 4", out ) == conco::result::success );
+		REQUIRE( out.arg_error_mask == 0 );
+
+		CHECK( execute( commands, "foo abc 2 3 4", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b0001 );
+
+		CHECK( execute( commands, "foo 1 abc 3 4", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b0010 );
+
+		CHECK( execute( commands, "foo 1 2 abc 4", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b0100 );
+
+		CHECK( execute( commands, "foo 1 2 3 abc", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b1000 );
+
+		CHECK( execute( commands, "foo abc 2 abc 4", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b0101 );
+
+		CHECK( execute( commands, "foo 1 abc 3 abc", out ) == conco::result::argument_parsing_error );
+		REQUIRE( out.arg_error_mask == 0b1010 );
 	}
 }
 
