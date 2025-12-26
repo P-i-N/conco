@@ -1,9 +1,9 @@
 # `con`sole `co`mmands
-C++ **header-only** library for creating REPLs (`R`ead-`E`val-`P`rint `L`oops) and simple text-based command interpreters.
+C++ **header-only** library for creating simple text-based command interpreters or REPL/Quake-like consoles.
 
 It helps you automatically convert a line of text like this:
 
-`"some_command_name 123 'Hello!' 456"`
+`some_command_name 123 'Hello!' 456`
 
 ... into actual C/C++ function call like this:
 ```cpp

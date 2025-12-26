@@ -254,7 +254,7 @@ TEST_SUITE( "Simple setter" )
 
 	TEST_CASE( "Simple setter" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ set, "set;Set value" },
 		};
 
@@ -281,7 +281,7 @@ TEST_SUITE( "Capture results" )
 
 	TEST_CASE( "Capture results" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ sum, "sum;Sum of two values" },
 			{ +[]( int x, int y ) { return x * y; }, "mul;Multiply two values" },
 			{ &c_str, "c_str;Return C string" },
@@ -312,7 +312,7 @@ TEST_SUITE( "Pass user data" )
 
 	TEST_CASE( "Pass user data" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ mul, "mul;Multiply two values with factor" },
 		};
 
@@ -373,7 +373,7 @@ TEST_SUITE( "Callback types" )
 			return value;
 		};
 
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ +[]( int x, int y ) { return x + y; }, "add x y" },
 			{ +[]( int x, int y ) { return x - y; }, "sub x y" },
 			{ capturing_lambda, "add_capture x y" },
@@ -402,7 +402,7 @@ TEST_SUITE( "Callback types" )
 	{
 		callable_struct multiplier;
 
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ multiplier, "mul x y" },
 		};
 
@@ -421,7 +421,7 @@ TEST_SUITE( "Default arguments" )
 {
 	TEST_CASE( "Default arguments" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ +[]( int x, int y, int z, int w ) { return x + y + z + w; },
 			  "bar x=1 y = 2 z= 3 w =4;Compute sum of four integers" },
 		};
@@ -450,7 +450,7 @@ TEST_SUITE( "Overloading" )
 {
 	TEST_CASE( "Overloading" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ +[]( int x, int y ) { return x + y; }, "compute x y=100;Compute sum of two integers" },
 			{ +[]( std::string_view str ) { return str.size(); }, "compute;Compute length of a string" },
 		};
@@ -471,7 +471,7 @@ TEST_SUITE( "Overloading" )
 
 	TEST_CASE( "Overloading errors" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ +[]( int x, int y, int z, int w ) { return x + y + z + w; }, "overload" },
 			{ +[]( int x, int y, int z ) { return x + y + z; }, "overload" },
 			{ +[]( int x, int y ) { return x + y; }, "overload" },
@@ -505,7 +505,7 @@ TEST_SUITE( "Tail arguments" )
 
 	TEST_CASE( "Tail arguments" )
 	{
-		static const conco::command commands[] = { { sum_all, "sum_all;Sum all arguments" } };
+		const conco::command commands[] = { { sum_all, "sum_all;Sum all arguments" } };
 
 		char buffer[64] = { 0 };
 
@@ -527,7 +527,7 @@ TEST_SUITE( "std::optional<T>" )
 
 	TEST_CASE( "std::optional<T>" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ foo, "foo x;Return the value of x or 42 if not provided" },
 		};
 
@@ -537,6 +537,26 @@ TEST_SUITE( "std::optional<T>" )
 
 		CHECK( execute( commands, "foo", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "42" );
+	}
+
+	TEST_CASE( "Optional result" )
+	{
+		const conco::command commands[] = {
+			{ +[]( int x ) -> std::optional<int> {
+			   if ( x % 2 == 0 )
+				   return x / 2;
+			   else
+				   return std::nullopt;
+			 },
+			  "half_if_even x;Return half of x if it's even, otherwise no result" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "half_if_even 100", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "50" );
+
+		CHECK( execute( commands, "half_if_even 33", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "" ); // No result
 	}
 }
 
@@ -551,7 +571,7 @@ TEST_SUITE( "Error handling" )
 
 	TEST_CASE( "Result" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ divide, "divide;Divide two integers" },
 		};
 
@@ -579,7 +599,7 @@ TEST_SUITE( "Error handling" )
 
 	TEST_CASE( "Exceptions" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ throwing_divide, "divide;Divide two integers" },
 		};
 
@@ -603,7 +623,7 @@ TEST_SUITE( "Error handling" )
 
 	TEST_CASE( "Argument parsing errors" )
 	{
-		static const conco::command commands[] = {
+		const conco::command commands[] = {
 			{ +[]( int x, int y, int z, int w ) {}, "foo" },
 		};
 

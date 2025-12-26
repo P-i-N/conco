@@ -229,6 +229,7 @@ template <typename U> struct std_optional_helper<std::optional<U>> : std::true_t
 	using type = U;
 };
 
+// Extracts the signature from member function pointer types
 template <typename T> struct signature_helper;
 
 template <typename C, typename RT, typename... Args> struct signature_helper<RT ( C::* )( Args... )>
@@ -256,7 +257,7 @@ template <typename F> struct command_traits;
 // Reflects function/method signatures into information about arguments and return type
 template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 {
-	static_assert( sizeof...( Args ) <= 30, "Too many command arguments!" );
+	static_assert( sizeof...( Args ) <= ( sizeof( output::arg_count ) * 8 ), "Too many command arguments!" );
 	static_assert( ( !std::is_rvalue_reference_v<Args> && ... ), "Command arguments cannot be r-value references (&&)!" );
 
 	using return_type = RT;
@@ -378,8 +379,24 @@ template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&
 	else
 	{
 		auto r = std::apply( callable, args_tuple );
-		if ( !ctx.out.buffer.empty() )
-			ctx.out.result_error = !to_chars( tag<RT>{}, ctx.out.buffer, r );
+
+		if constexpr ( std_optional_helper<RT>::value )
+		{
+			using U = typename std_optional_helper<RT>::type;
+
+			if ( !ctx.out.buffer.empty() )
+			{
+				if ( r )
+					ctx.out.result_error = !to_chars( tag<U>{}, ctx.out.buffer, *r );
+				else
+					ctx.out.buffer[0] = '\0';
+			}
+		}
+		else
+		{
+			if ( !ctx.out.buffer.empty() )
+				ctx.out.result_error = !to_chars( tag<RT>{}, ctx.out.buffer, r );
+		}
 	}
 
 	return true;
@@ -397,7 +414,7 @@ template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args.
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto callable = reinterpret_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
+		auto callable = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
 		return apply<RT>( ctx, callable, args_tuple );
 	}
 };
