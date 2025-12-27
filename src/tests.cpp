@@ -651,6 +651,28 @@ TEST_SUITE( "Error handling" )
 		CHECK( execute( commands, "foo 1 abc 3 abc", out ) == conco::result::argument_parsing_error );
 		REQUIRE( out.arg_error_mask == 0b1010 );
 	}
+
+	TEST_CASE( "Small result buffer" )
+	{
+		const conco::command commands[] = {
+			{ +[]( int x, int y ) { return x + y; }, "sum;Sum two integers" },
+		};
+
+		char buffer[2] = { 0 }; // Too small to hold any result
+		conco::output out = { buffer };
+		CHECK( execute( commands, "sum 100 200", out ) == conco::result::success );
+		REQUIRE( out.result_error == true );
+
+		char still_too_small_buffer[3] = { 0 }; // Can hold "300" but not null-terminator
+		out = { still_too_small_buffer };
+		CHECK( execute( commands, "sum 100 200", out ) == conco::result::success );
+		REQUIRE( out.result_error == true );
+
+		char exact_buffer[4] = { 0 }; // Just enough to hold "300" and null-terminator
+		out = { exact_buffer };
+		CHECK( execute( commands, "sum 100 200", out ) == conco::result::success );
+		REQUIRE( out.result_error == false );
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
