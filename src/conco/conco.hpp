@@ -23,18 +23,14 @@ enum class result
 /**
  * Executes a command from the given command list based on the provided command line string.
  */
-result execute( std::span<const struct command> commands,
-                std::string_view cmd_line,
-                struct output &out,
-                void *user_data = nullptr );
+result execute( std::span<const struct command> commands, std::string_view cmd_line, struct output &out );
 
 /**
  * Same as above, but creates an `output` structure internally.
  */
 result execute( std::span<const struct command> commands,
                 std::string_view cmd_line,
-                std::span<char> output_buffer = {},
-                void *user_data = nullptr );
+                std::span<char> output_buffer = {} );
 
 /**
  * Represents a single executable command.
@@ -120,7 +116,6 @@ struct context final
 	tokenizer args;                    // Tokenizer for command arguments
 	tokenizer default_args;            // Tokenizer for default arguments (if any)
 	output &out;                       // Result of the command execution
-	void *user_data;                   // User data, will be passed to `void*` args in command functions
 };
 
 /**
@@ -302,11 +297,8 @@ inline token next_arg_value( context &ctx ) noexcept
  */
 template <typename T> static T parse_arg( context &ctx ) noexcept
 {
-	// C-style `void*` user data pointer passed as-is
-	if constexpr ( std::is_same_v<T, void *> || std::is_same_v<T, const void *> )
-		return ctx.user_data;
 	// `tokenizer` allowed as whatever, it will only see remaining tail arguments
-	else if constexpr ( std::is_same_v<std::remove_cvref_t<T>, tokenizer> )
+	if constexpr ( std::is_same_v<std::remove_cvref_t<T>, tokenizer> )
 		return ctx.args;
 	// `output` only allowed as ref, because user *IS* expected to modify it
 	else if constexpr ( std::is_same_v<T, output &> )
@@ -497,7 +489,7 @@ template <auto M, typename C> command method( const C &ctx, const char *n )
 	return { ctx, descriptor::get<detail::method_invoker<const C, M>>(), n };
 }
 
-inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out, void *user_data )
+inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out )
 {
 	size_t overload_count = 0;
 
@@ -513,7 +505,7 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 		++overload_count;
 
 		tokenizer default_args( cmd_iter->name_and_args + command_name.size() );
-		context ctx = { commands, cmd_line, command_name, tok, default_args, out, user_data };
+		context ctx = { commands, cmd_line, command_name, tok, default_args, out };
 
 		out = { out.buffer, &*cmd_iter };
 
@@ -532,13 +524,10 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 	return overload_count > 1 ? result::no_matching_overload : result::command_not_found;
 }
 
-inline result execute( std::span<const command> commands,
-                       std::string_view cmd_line,
-                       std::span<char> output_buffer,
-                       void *user_data )
+inline result execute( std::span<const command> commands, std::string_view cmd_line, std::span<char> output_buffer )
 {
 	output out = { output_buffer };
-	return execute( commands, cmd_line, out, user_data );
+	return execute( commands, cmd_line, out );
 }
 
 } // namespace conco

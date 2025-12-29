@@ -5,28 +5,6 @@
 
 #include <print>
 
-namespace {
-
-conco::result execute( std::span<const conco::command> commands,
-                       const char *cmd_line,
-                       conco::output &out,
-                       void *user_data = nullptr )
-{
-	std::string input_buffer = cmd_line ? cmd_line : "";
-	return conco::execute( commands, input_buffer.data(), out, user_data );
-}
-
-conco::result execute( std::span<const conco::command> commands,
-                       const char *cmd_line,
-                       std::span<char> output_buffer = {},
-                       void *user_data = nullptr )
-{
-	conco::output out = { output_buffer };
-	return execute( commands, cmd_line, out, user_data );
-}
-
-} // namespace
-
 #define CHECK_NEXT_TOKEN( _Value ) \
 	do \
 	{ \
@@ -297,33 +275,6 @@ TEST_SUITE( "Capture results" )
 
 		CHECK( execute( commands, "c_str", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "Hello!" );
-	}
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-TEST_SUITE( "Pass user data" )
-{
-	int mul( int x, int y, const void *user_data )
-	{
-		int factor = *reinterpret_cast<const int *>( user_data );
-		return x * y * factor;
-	}
-
-	TEST_CASE( "Pass user data" )
-	{
-		const conco::command commands[] = {
-			{ mul, "mul;Multiply two values with factor" },
-		};
-
-		CHECK( commands[0].desc.arg_count == 3 );
-		CHECK( commands[0].desc.command_arg_count == 2 );
-
-		char buffer[64] = { 0 };
-
-		int factor = 3;
-		CHECK( execute( commands, "mul 10 20", buffer, &factor ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "600" ); // 10 * 20 * 3 = 600
 	}
 }
 
