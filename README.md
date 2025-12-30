@@ -85,32 +85,6 @@ int main()
 }
 ```
 
-## Passing `void *` user data
-
-Your command functions can accept an optional `(const) void *` parameter, which will be passed as a user-defined pointer when executing the command. This is mostly a fallback mechanism for easier integration with existing plain C APIs that use `void *` user data pointers. You should prefer member functions for more idiomatic C++ code.
-
-```cpp
-int multiply(int a, int b, void *user_data)
-{
-	int factor = *static_cast<int *>(user_data);
-	return (a * b) * factor;
-}
-
-int main()
-{
-	const conco::command commands[] = {
-		{ multiply, "multiply" }
-	};
-
-	int factor = 2;
-	char buffer[256] = { 0 };
-
-	// Calls `multiply(3, 4, &factor)` and writes stringified result to `buffer`
-	conco::execute(commands, "multiply 3 4", buffer, &factor);
-	std::println("{}", buffer); // Outputs: 24
-}
-```
-
 ## Default arguments
 
 Commands can have list of argument names with optional default values specified as part of the command name. During execution, if the user omits some arguments, the default values will be used - just like you would expect from normal C++ function default arguments.
@@ -140,31 +114,6 @@ int main()
 }
 ```
 
-## Implemnting `help` command
-
-You can access the list of available commands from within a command implementation by accepting a `const conco::context &` parameter. From there, you can iterate over `ctx.commands` to get the list of all registered commands along with their metadata.
-
-```cpp
-void help(const conco::context &ctx)
-{
-	for (const auto &cmd : ctx.commands)
-	{
-		// Print command name, argument list and other info
-		// Use `conco::command::desc` field to access reflection metadata
-	}
-}
-
-int main()
-{
-	const conco::command commands[] = {
-		{ help, "help;Displays this help message" },
-		// Other commands...
-	};
-
-	conco::execute(commands, "help");
-}
-```
-
 ## Overloading
 
 This is a bit wonky, but you can overload commands by listing multiple functions with the same name in the command list. The library will call the first one that succeeds in parsing the arguments. Because of this, it is better to list the more specific overloads first and the more general ones last; see the example below.
@@ -191,7 +140,40 @@ int main()
 
 ## Custom complex types
 
-When adding custom types, you need to provide following functions:
+There are two ways to use complex types as command arguments. First one - the easiest - if it is possible to create a structured binding for the type, you don't need to do anything special, just use the type as a parameter and the library will automatically compose/decompose it into its members and parse them individually. For example:
+
+```cpp
+// Simple struct that can be decomposed like: auto &[x, y] = p;
+struct point
+{
+	int x;
+	int y;
+};
+
+point add_points(const point &a, const point &b)
+{
+	return { a.x + b.x, a.y + b.y };
+}
+
+int main()
+{
+	const conco::command commands[] = {
+		{ add_points, "add_points a b={0 0};Add two points" } // `b` has a default value of `{0 0}`
+	};
+
+	char buffer[256] = { 0 };
+
+	// Calls `add_points({10, 20}, {30, 40})`
+	conco::execute(commands, "add_points {10 20} {30 40}", buffer);
+	std::println("{}", buffer); // Outputs: {40 60}
+
+	// Calls `add_points({10, 20}, {0, 0})`, uses default value for `b`
+	conco::execute(commands, "add_points {10 20}", buffer);
+	std::println("{}", buffer); // Outputs: {10 20}
+}
+```
+
+The second way - on case structured bindings are not possible or not desired - is to provide custom conversion functions for the type:
 * `type_name(conco::tag<T>)` - returns human readable name of the type
 * `from_string(conco::tag<T>, std::string_view)` - converts a string token to the custom type
 * `to_chars(conco::tag<T>, std::span<char>, T)` - converts the custom type to a string representation
@@ -258,6 +240,31 @@ int main()
 	// Calls `add_points({10, 20}, {0, 0})`, uses default value for `b`
 	conco::execute(commands, "add_points {10 20}", buffer);
 	std::println("{}", buffer); // Outputs: {10 20}
+}
+```
+
+## Implemnting `help` command
+
+You can access the list of available commands from within a command implementation by accepting a `const conco::context &` parameter. From there, you can iterate over `ctx.commands` to get the list of all registered commands along with their metadata.
+
+```cpp
+void help(const conco::context &ctx)
+{
+	for (const auto &cmd : ctx.commands)
+	{
+		// Print command name, argument list and other info
+		// Use `conco::command::desc` field to access reflection metadata
+	}
+}
+
+int main()
+{
+	const conco::command commands[] = {
+		{ help, "help;Displays this help message" },
+		// Other commands...
+	};
+
+	conco::execute(commands, "help");
 }
 ```
 

@@ -4,6 +4,7 @@
 #include "conco/conco.hpp"
 
 #include <print>
+#include <tuple>
 
 #define CHECK_NEXT_TOKEN( _Value ) \
 	do \
@@ -190,7 +191,7 @@ TEST_SUITE( "Tokenizer tests" )
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define CHECK_TYPE_PARSER_FROM_STRING( _Type, _Str, _ExpectedValue, _HasValue ) \
+#define CHECK_FROM_STRING( _Type, _Str, _ExpectedValue, _HasValue ) \
 	do \
 	{ \
 		auto opt = conco::from_string( conco::tag<_Type>{}, _Str ); \
@@ -199,23 +200,46 @@ TEST_SUITE( "Tokenizer tests" )
 			REQUIRE( *opt == _ExpectedValue ); \
 	} while ( false )
 
-TEST_SUITE( "Type parsing tests" )
+#define CHECK_TO_CHARS( _Type, _Value, _ExpectedStr ) \
+	do \
+	{ \
+		char buffer[64] = { 0 }; \
+		REQUIRE( conco::to_chars( conco::tag<_Type>{}, buffer, _Value ) > 0 ); \
+		REQUIRE( std::string_view( buffer ) == _ExpectedStr ); \
+	} while ( false )
+
+TEST_SUITE( "Type conversions" )
 {
 	TEST_CASE( "Basic types" )
 	{
-		CHECK_TYPE_PARSER_FROM_STRING( int, "123", 123, true );
-		CHECK_TYPE_PARSER_FROM_STRING( int, "0x123", 0x123, true );
-		CHECK_TYPE_PARSER_FROM_STRING( int, "0b11001010", 0b11001010, true );
-		CHECK_TYPE_PARSER_FROM_STRING( float, "1.0", 1.0, true );
-		CHECK_TYPE_PARSER_FROM_STRING( double, "2.0", 2.0, true );
-		CHECK_TYPE_PARSER_FROM_STRING( int, "abc", 0, false );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "true", true, true );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "false", false, true );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "1", true, true );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "0", false, true );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "yes", false, false );
-		CHECK_TYPE_PARSER_FROM_STRING( bool, "maybe", false, false );
-		CHECK_TYPE_PARSER_FROM_STRING( std::string_view, "abc", "abc", true );
+		CHECK_FROM_STRING( int, "123", 123, true );
+		CHECK_FROM_STRING( int, "0x123", 0x123, true );
+		CHECK_FROM_STRING( int, "0b11001010", 0b11001010, true );
+		CHECK_FROM_STRING( float, "1.0", 1.0, true );
+		CHECK_FROM_STRING( double, "2.0", 2.0, true );
+		CHECK_FROM_STRING( int, "abc", 0, false );
+		CHECK_FROM_STRING( bool, "true", true, true );
+		CHECK_FROM_STRING( bool, "false", false, true );
+		CHECK_FROM_STRING( bool, "1", true, true );
+		CHECK_FROM_STRING( bool, "0", false, true );
+		CHECK_FROM_STRING( bool, "yes", false, false );
+		CHECK_FROM_STRING( bool, "maybe", false, false );
+		CHECK_FROM_STRING( std::string_view, "abc", "abc", true );
+	}
+
+	TEST_CASE( "to_chars" )
+	{
+		CHECK_TO_CHARS( bool, true, "true" );
+		CHECK_TO_CHARS( bool, false, "false" );
+		CHECK_TO_CHARS( int, 12345, "12345" );
+		CHECK_TO_CHARS( float, 3.14f, "3.14" );
+		CHECK_TO_CHARS( double, 2.71828, "2.71828" );
+		CHECK_TO_CHARS( const char *, "Hello, world!", "Hello, world!" );
+		CHECK_TO_CHARS( std::string_view, "Test string", "Test string" );
+
+		using array_t = std::array<int, 3>;
+		array_t arr = { 1, 2, 3 };
+		CHECK_TO_CHARS( array_t, arr, "{1 2 3}" );
 	}
 }
 
@@ -633,34 +657,36 @@ struct point
 	int x, y;
 };
 
+/*
 constexpr std::string_view type_name( conco::tag<point> ) noexcept
 {
-	return "point";
+  return "point";
 }
 
 std::optional<point> from_string( conco::tag<point>, std::string_view str ) noexcept
 {
-	conco::tokenizer tokenizer{ str };
+  conco::tokenizer tokenizer{ str };
 
-	auto tx = tokenizer.next();
-	auto ty = tokenizer.next();
-	if ( !tx || !ty )
-		return std::nullopt;
+  auto tx = tokenizer.next();
+  auto ty = tokenizer.next();
+  if ( !tx || !ty )
+    return std::nullopt;
 
-	auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx );
-	auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty );
-	if ( !ox || !oy )
-		return std::nullopt;
+  auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx );
+  auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty );
+  if ( !ox || !oy )
+    return std::nullopt;
 
-	return point{ *ox, *oy };
+  return point{ *ox, *oy };
 }
 
 bool to_chars( conco::tag<point>, std::span<char> buffer, point p ) noexcept
 {
-	auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
-	*r.out = '\0';
-	return true;
+  auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
+  *r.out = '\0';
+  return true;
 }
+*/
 
 TEST_SUITE( "Custom types" )
 {
@@ -681,5 +707,61 @@ TEST_SUITE( "Custom types" )
 
 		CHECK( execute( commands, "add_points {5 6}", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "{15 26}" );
+	}
+}
+
+TEST_SUITE( "Structured bindings" )
+{
+	using sum_1 = std::tuple<int>;
+	using sum_2 = std::tuple<int, int>;
+	using sum_3 = std::tuple<int, int, int>;
+	using sum_4 = std::tuple<int, int, int, int>;
+
+	TEST_CASE( "Different number of members" )
+	{
+		const conco::command commands[] = {
+			{ +[]( sum_1 f ) { return std::get<0>( f ); }, "sum_1" },
+			{ +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
+			{ +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
+			{ +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "sum_1 5", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "5" );
+
+		CHECK( execute( commands, "sum_2 {5 10}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
+
+		CHECK( execute( commands, "sum_3 {5 10 15}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "30" );
+
+		CHECK( execute( commands, "sum_4 {5 10 15 20}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "50" );
+
+		CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
+	}
+
+	TEST_CASE( "Results" )
+	{
+		const conco::command commands[] = {
+			{ +[]( int x ) { return sum_1{ x }; }, "make_sum_1 x" },
+			{ +[]( int x, int y ) { return sum_2{ x, y }; }, "make_sum_2 x y" },
+			{ +[]( int x, int y, int z ) { return sum_3{ x, y, z }; }, "make_sum_3 x y z" },
+			{ +[]( int x, int y, int z, int w ) { return sum_4{ x, y, z, w }; }, "make_sum_4 x y z w" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "make_sum_1 42", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{42}" );
+
+		CHECK( execute( commands, "make_sum_2 10 20", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{10 20}" );
+
+		CHECK( execute( commands, "make_sum_3 1 2 3", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{1 2 3}" );
+
+		CHECK( execute( commands, "make_sum_4 4 3 2 1", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{4 3 2 1}" );
 	}
 }

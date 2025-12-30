@@ -162,14 +162,26 @@ struct descriptor final
 };
 
 template <typename T> struct tag
-{};
+{
+	using inner_type = void;
+};
 
 constexpr std::string_view type_name( auto ) noexcept
 {
 	return std::string_view(); // Fallback to unknown types
 }
 
+constexpr std::string_view inner_type_name( auto ) noexcept
+{
+	return std::string_view(); // Fallback to unknown types
+}
+
 template <typename T> constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
+{
+	return "optional";
+}
+
+template <typename T> constexpr std::string_view inner_type_name( tag<std::optional<T>> ) noexcept
 {
 	return type_name( tag<T>{} );
 }
@@ -181,6 +193,25 @@ template <typename T> constexpr std::string_view type_name( tag<std::optional<T>
 /* Here be dragons... */
 
 namespace conco::detail {
+
+struct any
+{
+	template <typename T> operator T() const;
+};
+
+template <typename T, std::size_t N>
+concept has_n_members = []<std::size_t... Is>( std::index_sequence<Is...> ) {
+	return requires { std::remove_cvref_t<T>{ ( void( Is ), detail::any{} )... }; };
+}( std::make_index_sequence<N>{} );
+
+template <typename T, std::size_t N> struct has_n_members_t : std::bool_constant<has_n_members<T, N>>
+{};
+
+template <typename... Args, std::size_t N>
+struct has_n_members_t<std::tuple<Args...>, N> : std::bool_constant<sizeof...( Args ) == N>
+{};
+
+template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
 
 template <typename T> struct arg_type_helper
 {
@@ -205,14 +236,6 @@ template <> struct arg_type_helper<output &>
 template <> struct arg_type_helper<const context &>
 {
 	using arg_tuple_type = const context &;        // As-is
-	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
-};
-
-template <typename U>
-  requires std::is_same_v<U, void *> || std::is_same_v<U, const void *>
-struct arg_type_helper<U>
-{
-	using arg_tuple_type = U;                      // As-is
 	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
 };
 
@@ -379,7 +402,7 @@ template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&
 			if ( !ctx.out.buffer.empty() )
 			{
 				if ( r )
-					ctx.out.result_error = !to_chars( tag<U>{}, ctx.out.buffer, *r );
+					ctx.out.result_error = ( to_chars( tag<U>{}, ctx.out.buffer, *r ) == 0 );
 				else
 					ctx.out.buffer[0] = '\0';
 			}
@@ -387,7 +410,7 @@ template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&
 		else
 		{
 			if ( !ctx.out.buffer.empty() )
-				ctx.out.result_error = !to_chars( tag<RT>{}, ctx.out.buffer, r );
+				ctx.out.result_error = ( to_chars( tag<RT>{}, ctx.out.buffer, r ) == 0 );
 		}
 	}
 
