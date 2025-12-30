@@ -2,6 +2,7 @@
 #include <doctest/parts/doctest.cpp>
 
 #include "conco/conco.hpp"
+#include "conco/extras/conco_stl_types.hpp"
 
 #include <print>
 #include <tuple>
@@ -234,8 +235,9 @@ TEST_SUITE( "Type conversions" )
 		CHECK_TO_CHARS( int, 12345, "12345" );
 		CHECK_TO_CHARS( float, 3.14f, "3.14" );
 		CHECK_TO_CHARS( double, 2.71828, "2.71828" );
-		CHECK_TO_CHARS( const char *, "Hello, world!", "Hello, world!" );
-		CHECK_TO_CHARS( std::string_view, "Test string", "Test string" );
+		CHECK_TO_CHARS( const char *, "Hello, world!", "\"Hello, world!\"" );
+		CHECK_TO_CHARS( std::string_view, "Test string", "\"Test string\"" ); // Enclosed in quotes
+		CHECK_TO_CHARS( std::string_view, "Test", "Test" );                   // No enclosing needed
 
 		using array_t = std::array<int, 3>;
 		array_t arr = { 1, 2, 3 };
@@ -657,36 +659,34 @@ struct point
 	int x, y;
 };
 
-/*
 constexpr std::string_view type_name( conco::tag<point> ) noexcept
 {
-  return "point";
+	return "point";
 }
 
 std::optional<point> from_string( conco::tag<point>, std::string_view str ) noexcept
 {
-  conco::tokenizer tokenizer{ str };
+	conco::tokenizer tokenizer{ str };
 
-  auto tx = tokenizer.next();
-  auto ty = tokenizer.next();
-  if ( !tx || !ty )
-    return std::nullopt;
+	auto tx = tokenizer.next();
+	auto ty = tokenizer.next();
+	if ( !tx || !ty )
+		return std::nullopt;
 
-  auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx );
-  auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty );
-  if ( !ox || !oy )
-    return std::nullopt;
+	auto ox = conco::from_string( conco::tag<decltype( point::x )>{}, *tx );
+	auto oy = conco::from_string( conco::tag<decltype( point::y )>{}, *ty );
+	if ( !ox || !oy )
+		return std::nullopt;
 
-  return point{ *ox, *oy };
+	return point{ *ox, *oy };
 }
 
 bool to_chars( conco::tag<point>, std::span<char> buffer, point p ) noexcept
 {
-  auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
-  *r.out = '\0';
-  return true;
+	auto r = std::format_to_n( buffer.data(), buffer.size(), "{{{} {}}}", p.x, p.y );
+	*r.out = '\0';
+	return true;
 }
-*/
 
 TEST_SUITE( "Custom types" )
 {
@@ -763,5 +763,94 @@ TEST_SUITE( "Structured bindings" )
 
 		CHECK( execute( commands, "make_sum_4 4 3 2 1", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "{4 3 2 1}" );
+	}
+}
+
+TEST_SUITE( "STL types" )
+{
+	TEST_CASE( "std::vector" )
+	{
+		const conco::command commands[] = {
+			{ +[]( const std::vector<int> &vec ) -> int {
+			   int sum = 0;
+			   for ( auto v : vec )
+				   sum += v;
+			   return sum;
+			 },
+			  "sum_vector vec;Sum all integers in the vector" },
+
+			{ +[]( conco::tokenizer &args ) -> std::vector<int> {
+			   std::vector<int> vec;
+
+			   conco::token t;
+			   while ( ( t = args.next() ).has_value() )
+			   {
+				   if ( auto value_opt = conco::from_string( conco::tag<int>{}, *t ); value_opt.has_value() )
+					   vec.push_back( *value_opt );
+			   }
+
+			   return vec;
+			 },
+			  "make_vector;Create a vector of integers from the provided arguments" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "sum_vector {1 2 3 4 5}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
+
+		CHECK( execute( commands, "sum_vector {}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "0" );
+
+		CHECK( execute( commands, "make_vector 10 20 30 40", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{10 20 30 40}" );
+	}
+
+	TEST_CASE( "std::map" )
+	{
+		const conco::command commands[] = {
+			{ +[]( const std::map<std::string, int> &m ) -> int {
+			   int sum = 0;
+			   for ( const auto &[key, value] : m )
+				   sum += value;
+			   return sum;
+			 },
+			  "sum_map m;Sum all integer values in the map" },
+			{ +[]( conco::tokenizer &args ) -> std::map<std::string, int> {
+			   std::map<std::string, int> m;
+
+			   while ( true )
+			   {
+				   auto key = args.next();
+				   if ( !key )
+					   break;
+
+				   if ( !args.consume_char_if( '=' ) )
+					   break;
+
+				   auto value = args.next();
+				   if ( !value )
+					   break;
+
+				   auto parsed_key_opt = conco::from_string( conco::tag<std::string>{}, *key );
+				   auto parsed_value_opt = conco::from_string( conco::tag<int>{}, *value );
+
+				   if ( parsed_key_opt && parsed_value_opt )
+					   m.emplace( *parsed_key_opt, *parsed_value_opt );
+				   else
+					   break;
+			   }
+
+			   return m;
+			 },
+			  "make_map;Create a map from key=value pairs" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "sum_map {a=10 b=20 c=30}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "60" );
+		CHECK( execute( commands, "sum_map {}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "0" );
+		CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 key1=100 key2=200 key3=300}" );
 	}
 }

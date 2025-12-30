@@ -27,6 +27,13 @@ template <typename T> size_t to_chars_append( std::span<char> &buff, const T &va
 	return leading_space ? len : len - 1;
 }
 
+template <typename T>
+concept is_tuple_like = requires { sizeof( std::tuple_size<T> ); };
+
+template <typename T>
+concept is_struct_bindable = std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
+                             std::is_aggregate_v<std::remove_cvref_t<T>>;
+
 } // namespace conco::detail
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -153,6 +160,41 @@ std::optional<std::string_view> from_string( tag<std::string_view>, std::string_
 
 size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view value ) noexcept
 {
+	bool has_terminator = false;
+	size_t num_double_quotes = 0;
+	size_t num_single_quotes = 0;
+
+	for ( char ch : value )
+	{
+		has_terminator |= tokenizer::is_ident_term( ch );
+		num_double_quotes += ( ch == '"' ) ? 1 : 0;
+		num_single_quotes += ( ch == '\'' ) ? 1 : 0;
+	}
+
+	if ( has_terminator || num_double_quotes > 0 || num_single_quotes > 0 )
+	{
+		size_t num_escapes = std::max( num_double_quotes, num_single_quotes );
+
+		// +2 for enclosing quotes, +X for '\\', +1 for null-terminator
+		if ( buff.size() < value.size() + 3 + num_escapes )
+			return 0;
+
+		char quote_char = ( num_double_quotes <= num_single_quotes ) ? '"' : '\'';
+		buff[0] = quote_char;
+
+		size_t i = 1;
+		for ( char ch : value )
+		{
+			if ( ch == quote_char || ch == '\\' )
+				buff[i++] = '\\';
+			buff[i++] = ch;
+		}
+
+		buff[i++] = quote_char;
+		buff[i++] = '\0';
+		return i;
+	}
+
 	if ( buff.size() < value.size() + 1 ) // +1 for null-terminator
 		return 0;
 
@@ -170,16 +212,11 @@ constexpr std::string_view type_name( tag<const char *> ) noexcept
 }
 
 // Note: There is no `from_string`, because we cannot return a null-terminated string from
-// a source std::string_view without allocating memory for it.
+// a source std::string_view token without allocating memory for it.
 
 size_t to_chars( tag<const char *>, std::span<char> buff, const char *value ) noexcept
 {
-	size_t len = std::char_traits<char>::length( value );
-	if ( buff.size() < len + 1 ) // +1 for null-terminator
-		return 0;
-
-	std::copy_n( value, len + 1, buff.data() ); // Including null-terminator
-	return len + 1;
+	return to_chars( tag<std::string_view>{}, buff, value ? std::string_view{ value } : std::string_view{} );
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -256,14 +293,14 @@ size_t to_chars( tag<std::array<T, N>>, std::span<char> buff, const std::array<T
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
-  requires std::is_class_v<T>
+  requires std::is_class_v<T> && detail::is_struct_bindable<T>
 constexpr std::string_view type_name( tag<T> ) noexcept
 {
 	return "object";
 }
 
 template <typename T>
-  requires std::is_class_v<T>
+  requires std::is_class_v<T> && detail::is_struct_bindable<T>
 std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 {
 	T obj{};
@@ -288,7 +325,7 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 
 	if constexpr ( detail::has_n_members_v<T, 9> )
 	{
-		static_assert( false, "Too many ms in this class type!" );
+		static_assert( false, "Too many members in this class type!" );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 8> )
 	{
@@ -350,7 +387,7 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 }
 
 template <typename T>
-  requires std::is_class_v<T>
+  requires std::is_class_v<T> && detail::is_struct_bindable<T>
 size_t to_chars( tag<T>, std::span<char> buff, const T &value ) noexcept
 {
 	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator

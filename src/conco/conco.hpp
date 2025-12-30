@@ -378,7 +378,7 @@ template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
 	using result_t = std::tuple<typename arg_type_helper<Args>::arg_tuple_type...>;
 
 	// Using brace initialization to guarantee left-to-right evaluation order or `parse_arg<>()` calls
-	return result_t{ ( parse_arg<Args>( ctx ) )... };
+	return result_t{ ( parse_arg<typename arg_type_helper<Args>::arg_tuple_type>( ctx ) )... };
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification

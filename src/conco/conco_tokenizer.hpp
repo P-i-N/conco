@@ -39,13 +39,13 @@ using token = std::optional<std::string_view>;
  */
 struct tokenizer
 {
-	// Characters that terminate identifier token
-	static constexpr auto is_ident_term = []( char ch ) static -> bool {
-		return ch <= ' ' || ch == ',' || ch == ';' || ch == '=' || ch == '"' || ch == '\'' || ch == '{' || ch == '}';
-	};
-
 	// Characters that are considered whitespace or delimiters between tokens
 	static constexpr auto is_whitespace = []( char ch ) static -> bool { return ch <= ' ' || ch == ','; };
+
+	// Characters that terminate identifier token
+	static constexpr auto is_ident_term = []( char ch ) static -> bool {
+		return is_whitespace( ch ) || ch == ';' || ch == '=' || ch == '"' || ch == '\'' || ch == '{' || ch == '}';
+	};
 
 	std::string_view text;
 

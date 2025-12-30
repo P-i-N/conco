@@ -1,0 +1,173 @@
+#pragma once
+
+#include "../conco.hpp"
+
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace conco::detail {
+
+// Concept for map/unordered_map-like types
+template <typename M>
+concept is_map_like = requires {
+	typename M::key_type;
+	typename M::mapped_type;
+	typename M::value_type;
+	{ M{}.emplace( std::declval<typename M::key_type>(), std::declval<typename M::mapped_type>() ) };
+} && std::is_same_v<typename M::value_type, std::pair<const typename M::key_type, typename M::mapped_type>>;
+
+} // namespace conco::detail
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace conco {
+
+constexpr std::string_view type_name( tag<std::string> ) noexcept
+{
+	return "string";
+}
+
+std::optional<std::string> from_string( tag<std::string>, std::string_view str ) noexcept
+{
+	return std::string{ str };
+}
+
+size_t to_chars( tag<std::string>, std::span<char> buff, const std::string &value ) noexcept
+{
+	return to_chars( tag<std::string_view>{}, buff, std::string_view{ value } );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <typename T, typename A> struct tag<std::vector<T, A>>
+{
+	using inner_type = T;
+};
+
+template <typename T, typename A> constexpr std::string_view type_name( tag<std::vector<T, A>> ) noexcept
+{
+	return "vector";
+}
+
+template <typename T, typename A>
+std::optional<std::vector<T, A>> from_string( tag<std::vector<T, A>>, std::string_view str ) noexcept
+{
+	std::vector<T, A> out;
+	tokenizer tok = { str };
+
+	while ( true )
+	{
+		auto arg = tok.next();
+		if ( !arg )
+			break;
+
+		if ( auto parsed_opt = from_string( tag<T>{}, *arg ); parsed_opt )
+			out.push_back( *parsed_opt );
+		else
+			return std::nullopt;
+	}
+
+	return out;
+}
+
+template <typename T, typename A>
+size_t to_chars( tag<std::vector<T, A>>, std::span<char> buff, const std::vector<T, A> &value ) noexcept
+{
+	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator
+		return 0;
+
+	auto b = buff;
+	for ( const auto &v : value )
+	{
+		size_t len = detail::to_chars_append( b, v, true );
+		if ( len == 0 )
+			return 0;
+	}
+
+	if ( b.size() < 2 ) // Not enough space for closing '}' and null-terminator
+		return 0;
+
+	buff[0] = '{'; // Replace leading ' ' with '{'
+	b[0] = '}';
+	b[1] = '\0';
+	return b.data() - buff.data() + 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <detail::is_map_like M> struct tag<M>
+{
+	using inner_type = typename M::value_type;
+};
+
+template <typename K, typename T, typename P, typename A>
+constexpr std::string_view type_name( tag<std::map<K, T, P, A>> ) noexcept
+{
+	return "map";
+}
+
+template <detail::is_map_like M> std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
+{
+	M out;
+
+	tokenizer tok = { str };
+	while ( true )
+	{
+		auto key = tok.next();
+		if ( !key )
+			break;
+
+		if ( !tok.consume_char_if( '=' ) )
+			return std::nullopt;
+
+		auto value = tok.next();
+		if ( !value )
+			return std::nullopt;
+
+		auto parsed_key_opt = from_string( tag<typename M::key_type>{}, *key );
+		auto parsed_value_opt = from_string( tag<typename M::mapped_type>{}, *value );
+
+		if ( parsed_key_opt && parsed_value_opt )
+			out.emplace( *parsed_key_opt, *parsed_value_opt );
+		else
+			return std::nullopt;
+	}
+
+	return out;
+}
+
+template <detail::is_map_like M> size_t to_chars( tag<M>, std::span<char> buff, const M &value ) noexcept
+{
+	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator
+		return 0;
+
+	auto b = buff;
+	for ( const auto &[key, val] : value )
+	{
+		size_t len = detail::to_chars_append( b, key, true );
+		if ( len == 0 )
+			return 0;
+
+		if ( b.size() < 2 ) // Need at least '=' and something for value
+			return 0;
+
+		b[0] = '=';
+		b = b.subspan( 1 );
+
+		len = detail::to_chars_append( b, val, false );
+		if ( len == 0 )
+			return 0;
+	}
+
+	if ( b.size() < 2 ) // Not enough space for closing '}' and null-terminator
+		return 0;
+
+	buff[0] = '{'; // Replace leading ' ' with '{'
+	b[0] = '}';
+	b[1] = '\0';
+	return b.data() - buff.data() + 2;
+}
+
+} // namespace conco
