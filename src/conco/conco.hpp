@@ -119,6 +119,21 @@ struct context final
 };
 
 /**
+ * Holds runtime stringified type information about a single argument or return type.
+ *
+ * This is used in `descriptor` below to describe argument and return types of commands.
+ * All names are filled from `type_name()` functions at compile-time.
+ */
+struct type_info
+{
+	std::string_view name = {};                       // "int", "optional", "vector", "my_struct", etc.
+	const type_info *const inner_type_info = nullptr; // Pointer to inner type info, if any (usually the <T> type)
+
+	// Gets the `type_info` instance for the given type `T`. `void` type results in `nullptr`.
+	template <typename T> static constexpr const type_info *const get() noexcept;
+};
+
+/**
  * Holds runtime information about the command function or method.
  *
  * All the fields are filled from function/method signature traits at compile-time.
@@ -130,33 +145,23 @@ struct descriptor final
 	using invoker_func_t = bool ( * )( struct context & );
 	invoker_func_t invoker = nullptr;
 
-	// Names of argument types for this command. Hidden args have empty names.
-	std::span<const std::string_view> arg_type_names;
-
-	std::string_view result_type_name;
+	std::span<const type_info *const> arg_type_infos;
+	const type_info *result_type_info = nullptr;
 
 	uint8_t arg_count = 0;         // Number of real (program) arguments
 	uint8_t command_arg_count = 0; // Number of textual arguments, minimum required
 	bool has_tail_args = false;    // Whether the last argument is a tokenizer for variadic tail arguments
-	bool has_result = false;       // Command has a non-void return type
 
 	template <typename I, typename Traits = typename I::traits> static const descriptor &get()
 	{
 		static const descriptor desc = { .invoker = &I::call,
 			                               // Explicitly construct span with `arg_count` to trim the dummy element
-			                               .arg_type_names = { Traits::arg_type_names, Traits::arg_count },
-			                               .result_type_name = Traits::result_type_name,
+			                               .arg_type_infos = { Traits::arg_type_infos, Traits::arg_count },
+			                               .result_type_info = Traits::result_type_info,
 			                               .arg_count = Traits::arg_count,
 			                               .command_arg_count = Traits::command_arg_count,
-			                               .has_tail_args = Traits::has_tail_args,
-			                               .has_result = Traits::has_result };
+			                               .has_tail_args = Traits::has_tail_args };
 
-		return desc;
-	}
-
-	static const descriptor &empty()
-	{
-		static const descriptor desc = {};
 		return desc;
 	}
 };
@@ -168,12 +173,7 @@ template <typename T> struct tag
 
 constexpr std::string_view type_name( auto ) noexcept
 {
-	return std::string_view(); // Fallback to unknown types
-}
-
-constexpr std::string_view inner_type_name( auto ) noexcept
-{
-	return std::string_view(); // Fallback to unknown types
+	return std::string_view(); // Empty fallback for unknown types
 }
 
 template <typename T> constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
@@ -181,9 +181,24 @@ template <typename T> constexpr std::string_view type_name( tag<std::optional<T>
 	return "optional";
 }
 
-template <typename T> constexpr std::string_view inner_type_name( tag<std::optional<T>> ) noexcept
+template <typename T> struct tag<std::optional<T>>
 {
-	return type_name( tag<T>{} );
+	using inner_type = T;
+};
+
+template <typename T> inline static constexpr const type_info *const type_info::get() noexcept
+{
+	static constexpr const type_info ti = { .name = type_name( tag<T>{} ),
+		                                      .inner_type_info = []() noexcept -> const type_info * {
+		                                        using inner_type = typename tag<T>::inner_type;
+
+		                                        if constexpr ( std::is_same_v<inner_type, void> == false )
+			                                        return type_info::get<typename tag<T>::inner_type>();
+		                                        else
+			                                        return nullptr;
+		                                      }() };
+
+	return &ti;
 }
 
 } // namespace conco
@@ -282,14 +297,14 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 
 	static constexpr size_t arg_count = sizeof...( Args );
 	static constexpr size_t command_arg_count = ( ( arg_type_helper<Args>::command_arg_count ) + ... + 0 );
-	static constexpr bool has_tail_args = ( std::is_same_v<std::remove_cvref_t<Args>, tokenizer> || ... || false );
-	static constexpr bool has_result = !std::is_void_v<RT>;
 
-	static constexpr std::string_view arg_type_names[sizeof...( Args ) + 1] = {
-		type_name( tag<std::remove_cvref_t<Args>>{} )..., {} // Dummy +1 so the array is not empty
+	static constexpr bool has_tail_args = ( std::is_same_v<std::remove_cvref_t<Args>, tokenizer> || ... || false );
+
+	static constexpr const type_info *const arg_type_infos[sizeof...( Args ) + 1] = {
+		type_info::get<std::remove_cvref_t<Args>>()..., {} // Dummy +1 so the array is not empty
 	};
 
-	static constexpr std::string_view result_type_name = type_name( tag<RT>{} );
+	static constexpr const type_info *const result_type_info = type_info::get<RT>();
 
 	static_assert( command_arg_count <= arg_count,
 	               "Number of command arguments cannot be greater than total number of arguments!" );

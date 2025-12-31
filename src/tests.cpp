@@ -223,7 +223,7 @@ TEST_SUITE( "Type conversions" )
 		CHECK_FROM_STRING( bool, "false", false, true );
 		CHECK_FROM_STRING( bool, "1", true, true );
 		CHECK_FROM_STRING( bool, "0", false, true );
-		CHECK_FROM_STRING( bool, "yes", false, false );
+		CHECK_FROM_STRING( bool, "yes", true, true );
 		CHECK_FROM_STRING( bool, "maybe", false, false );
 		CHECK_FROM_STRING( std::string_view, "abc", "abc", true );
 	}
