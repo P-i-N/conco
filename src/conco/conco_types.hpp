@@ -47,10 +47,9 @@ constexpr std::string_view type_name( tag<bool> ) noexcept
 
 std::optional<bool> from_string( tag<bool>, std::string_view str ) noexcept
 {
-	if ( !std::strcmp( str.data(), "true" ) || !std::strcmp( str.data(), "1" ) )
+	if ( str == "true" || str == "1" || str == "yes" || str == "on" )
 		return true;
-
-	else if ( !std::strcmp( str.data(), "false" ) || !std::strcmp( str.data(), "0" ) )
+	else if ( str == "false" || str == "0" || str == "no" || str == "off" )
 		return false;
 
 	return std::nullopt;
@@ -160,48 +159,35 @@ std::optional<std::string_view> from_string( tag<std::string_view>, std::string_
 
 size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view value ) noexcept
 {
-	bool has_terminator = false;
-	size_t num_double_quotes = 0;
 	size_t num_single_quotes = 0;
+	size_t num_double_quotes = 0;
 
 	for ( char ch : value )
 	{
-		has_terminator |= tokenizer::is_ident_term( ch );
-		num_double_quotes += ( ch == '"' ) ? 1 : 0;
 		num_single_quotes += ( ch == '\'' ) ? 1 : 0;
+		num_double_quotes += ( ch == '"' ) ? 1 : 0;
 	}
 
-	if ( has_terminator || num_double_quotes > 0 || num_single_quotes > 0 )
-	{
-		size_t num_escapes = std::max( num_double_quotes, num_single_quotes );
+	size_t num_escapes = std::max( num_double_quotes, num_single_quotes );
 
-		// +2 for enclosing quotes, +X for '\\', +1 for null-terminator
-		if ( buff.size() < value.size() + 3 + num_escapes )
-			return 0;
-
-		char quote_char = ( num_double_quotes <= num_single_quotes ) ? '"' : '\'';
-		buff[0] = quote_char;
-
-		size_t i = 1;
-		for ( char ch : value )
-		{
-			if ( ch == quote_char || ch == '\\' )
-				buff[i++] = '\\';
-			buff[i++] = ch;
-		}
-
-		buff[i++] = quote_char;
-		buff[i++] = '\0';
-		return i;
-	}
-
-	if ( buff.size() < value.size() + 1 ) // +1 for null-terminator
+	// +2 for enclosing quotes, +X for '\\', +1 for null-terminator
+	if ( buff.size() < value.size() + 3 + num_escapes )
 		return 0;
 
-	std::copy_n( value.data(), value.size(), buff.data() );
+	char quote_char = ( num_double_quotes <= num_single_quotes ) ? '"' : '\'';
+	buff[0] = quote_char;
 
-	buff[value.size()] = '\0';
-	return value.size() + 1;
+	size_t i = 1;
+	for ( char ch : value )
+	{
+		if ( ch == quote_char || ch == '\\' )
+			buff[i++] = '\\';
+		buff[i++] = ch;
+	}
+
+	buff[i++] = quote_char;
+	buff[i++] = '\0';
+	return i;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

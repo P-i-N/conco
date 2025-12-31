@@ -236,8 +236,8 @@ TEST_SUITE( "Type conversions" )
 		CHECK_TO_CHARS( float, 3.14f, "3.14" );
 		CHECK_TO_CHARS( double, 2.71828, "2.71828" );
 		CHECK_TO_CHARS( const char *, "Hello, world!", "\"Hello, world!\"" );
-		CHECK_TO_CHARS( std::string_view, "Test string", "\"Test string\"" ); // Enclosed in quotes
-		CHECK_TO_CHARS( std::string_view, "Test", "Test" );                   // No enclosing needed
+		CHECK_TO_CHARS( std::string_view, "Test string", "\"Test string\"" );
+		CHECK_TO_CHARS( std::string_view, "xxx \"quotes\" yyy", "'xxx \"quotes\" yyy'" );
 
 		using array_t = std::array<int, 3>;
 		array_t arr = { 1, 2, 3 };
@@ -300,7 +300,7 @@ TEST_SUITE( "Capture results" )
 		REQUIRE( std::string_view( buffer ) == "408" );
 
 		CHECK( execute( commands, "c_str", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "Hello!" );
+		REQUIRE( std::string_view( buffer ) == "\"Hello!\"" );
 	}
 }
 
@@ -717,6 +717,8 @@ TEST_SUITE( "Structured bindings" )
 	using sum_3 = std::tuple<int, int, int>;
 	using sum_4 = std::tuple<int, int, int, int>;
 
+	using pair = std::pair<int, int>;
+
 	TEST_CASE( "Different number of members" )
 	{
 		const conco::command commands[] = {
@@ -724,6 +726,7 @@ TEST_SUITE( "Structured bindings" )
 			{ +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
 			{ +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
 			{ +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
+			{ +[]( pair p ) { return p.first + p.second; }, "sum_pair" },
 		};
 
 		char buffer[64] = { 0 };
@@ -740,6 +743,9 @@ TEST_SUITE( "Structured bindings" )
 		REQUIRE( std::string_view( buffer ) == "50" );
 
 		CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
+
+		CHECK( execute( commands, "sum_pair {7 8}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
 	}
 
 	TEST_CASE( "Results" )
@@ -749,6 +755,7 @@ TEST_SUITE( "Structured bindings" )
 			{ +[]( int x, int y ) { return sum_2{ x, y }; }, "make_sum_2 x y" },
 			{ +[]( int x, int y, int z ) { return sum_3{ x, y, z }; }, "make_sum_3 x y z" },
 			{ +[]( int x, int y, int z, int w ) { return sum_4{ x, y, z, w }; }, "make_sum_4 x y z w" },
+			{ +[]( int x, int y ) { return pair{ x, y }; }, "make_pair x y" },
 		};
 
 		char buffer[64] = { 0 };
@@ -763,6 +770,9 @@ TEST_SUITE( "Structured bindings" )
 
 		CHECK( execute( commands, "make_sum_4 4 3 2 1", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "{4 3 2 1}" );
+
+		CHECK( execute( commands, "make_pair 7 8", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{7 8}" );
 	}
 }
 
@@ -808,13 +818,17 @@ TEST_SUITE( "STL types" )
 	TEST_CASE( "std::map" )
 	{
 		const conco::command commands[] = {
-			{ +[]( const std::map<std::string, int> &m ) -> int {
-			   int sum = 0;
+			{ +[]( const std::map<std::string, int> &m ) -> std::pair<std::string, int> {
+			   std::pair<std::string, int> result = {};
 			   for ( const auto &[key, value] : m )
-				   sum += value;
-			   return sum;
+			   {
+				   result.first += key;
+				   result.second += value;
+			   }
+
+			   return result;
 			 },
-			  "sum_map m;Sum all integer values in the map" },
+			  "sum_map m;Sum all keys and values in the map" },
 			{ +[]( conco::tokenizer &args ) -> std::map<std::string, int> {
 			   std::map<std::string, int> m;
 
@@ -847,10 +861,10 @@ TEST_SUITE( "STL types" )
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "sum_map {a=10 b=20 c=30}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "60" );
+		REQUIRE( std::string_view( buffer ) == "{\"abc\" 60}" );
 		CHECK( execute( commands, "sum_map {}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "0" );
+		REQUIRE( std::string_view( buffer ) == "{\"\" 0}" );
 		CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 key1=100 key2=200 key3=300}" );
+		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 \"key1\"=100 \"key2\"=200 \"key3\"=300}" );
 	}
 }

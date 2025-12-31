@@ -268,6 +268,33 @@ int main()
 }
 ```
 
+## Basic supported types
+
+The library provides built-in support for the following basic types:
+
+* `int`, `long`, `long long` and their unsigned variants
+* `float`, `double`
+* `bool` (supports `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`)
+* `std::string_view`
+* `const char *` as a command result
+* `std::span<T>` as a command result for any supported type `T`
+* `std::array<T, N>` for any supported type `T` and size `N`
+* `std::optional<T>` for any supported type `T`
+* `std::tuple<Ts...>` for any supported types `Ts...`
+* `std::pair<T1, T2>` for any supported types `T1`, `T2`
+* Any struct/class that supports structured bindings for its members
+
+## Extended types
+
+Including additional header `conco/extras/conco_stl_types.hpp` adds support for the following STL types as command arguments and return values. Note that these types may require dynamic memory allocations during parsing and serialization! Since the core library is designed to be zero-allocation, these types are provided as optional extensions.
+
+* `std::vector<T>` for any supported type `T`
+* `std::map<K, V>` for any supported key type `K` and value type `V`
+* `std::unordered_map<K, V>` for any supported key type `K` and value type `V`
+* `std::string`
+* `std::span<T>` as command argument for any supported type `T` (`std::vector<T>` is used as temporary storage in the background)
+* `const char *` as command argument (`std::string` is used as temporary storage in the background)
+
 ## Tokenization rules
 
 The library splits input command lines into tokens using the following rules:
@@ -279,3 +306,8 @@ The library splits input command lines into tokens using the following rules:
 * Semicolon (`;`) is a terminating charater, tokenization stops when it is encountered
 
 Since the whole library is zero-copy and does not allocate memory, tokens are represented as `std::string_view` slices of the original input string. This means that escaped characters are not really unescaped in the tokens and user code must handle that if needed.
+
+## Gotchas & limitations
+
+* The tokenizer is *REALLY* simple. Some of the rules above may not behave as you expect in some edge cases. For example:
+  - `abc"de"f` will be tokenized as a single token `abc"de"f`
