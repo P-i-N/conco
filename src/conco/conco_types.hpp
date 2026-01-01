@@ -198,7 +198,9 @@ constexpr std::string_view type_name( tag<const char *> ) noexcept
 }
 
 // Note: There is no `from_string`, because we cannot return a null-terminated string from
-// a source std::string_view token without allocating memory for it.
+// a source std::string_view token without allocating memory for it. If you want to use
+// `const char *` parameters, include `extras/conco_stl_types.hpp` which provides `type_mapper`
+// specialization mapping `const char *` to `std::string` storage.
 
 size_t to_chars( tag<const char *>, std::span<char> buff, const char *value ) noexcept
 {
@@ -212,19 +214,9 @@ template <typename T, size_t N> constexpr std::string_view type_name( tag<std::a
 	return "array";
 }
 
-template <typename T, size_t N> constexpr std::string_view inner_type_name( tag<std::array<T, N>> ) noexcept
-{
-	return type_name( tag<T>{} );
-}
-
 template <typename T, size_t N> constexpr std::string_view type_name( tag<std::span<T, N>> ) noexcept
 {
 	return "span";
-}
-
-template <typename T> constexpr std::string_view inner_type_name( tag<std::span<T>> ) noexcept
-{
-	return type_name( tag<T>{} );
 }
 
 template <typename T, size_t N>
@@ -363,7 +355,7 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	}
 	else
 	{
-		static_assert( false, "Class type has no ms!" );
+		static_assert( false, "Class type has no members!" );
 	}
 
 	if ( !still_valid )

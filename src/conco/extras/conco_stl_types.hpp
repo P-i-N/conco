@@ -18,23 +18,6 @@ concept is_map_like = requires {
 	{ M{}.emplace( std::declval<typename M::key_type>(), std::declval<typename M::mapped_type>() ) };
 } && std::is_same_v<typename M::value_type, std::pair<const typename M::key_type, typename M::mapped_type>>;
 
-template <> struct arg_type_helper<const char *>
-{
-	using arg_tuple_type = std::string;
-	static constexpr size_t command_arg_count = 1;
-	static const char *to_call_arg( std::string &value ) noexcept { return value.c_str(); }
-};
-
-template <typename T> struct arg_type_helper<std::span<T>>
-{
-	using arg_tuple_type = std::vector<T>;
-	static constexpr size_t command_arg_count = 1;
-	static std::span<T> to_call_arg( std::vector<T> &value ) noexcept
-	{
-		return std::span<T>{ value.data(), value.size() };
-	}
-};
-
 } // namespace conco::detail
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -56,11 +39,37 @@ size_t to_chars( tag<std::string>, std::span<char> buff, const std::string &valu
 	return to_chars( tag<std::string_view>{}, buff, std::string_view{ value } );
 }
 
+template <> struct type_mapper<const char *>
+{
+	using inner_type = void;
+	using storage_type = std::string;
+	static const char *forward( storage_type &value ) noexcept { return value.c_str(); }
+};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T, typename A> struct tag<std::vector<T, A>>
+template <typename T, typename A> struct type_mapper<std::vector<T, A>>
 {
 	using inner_type = T;
+	using storage_type = std::vector<typename type_mapper<T>::storage_type, A>;
+
+	static storage_type &forward( storage_type &value ) noexcept
+	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		return value;
+	}
+
+	static std::vector<T, A> forward( storage_type &value ) noexcept
+	  requires !std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		std::vector<T, A> out;
+		out.reserve( value.size() );
+
+		for ( auto &v : value )
+			out.push_back( type_mapper<T>::forward( v ) );
+
+		return out;
+	}
 };
 
 template <typename T, typename A> constexpr std::string_view type_name( tag<std::vector<T, A>> ) noexcept
@@ -68,9 +77,34 @@ template <typename T, typename A> constexpr std::string_view type_name( tag<std:
 	return "vector";
 }
 
-template <typename T> struct tag<std::span<T>>
+template <typename T> struct type_mapper<std::span<T>>
 {
 	using inner_type = T;
+	using storage_type = std::vector<typename type_mapper<T>::storage_type>;
+
+	static std::span<T> forward( storage_type &value ) noexcept
+	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		return std::span<T>{ value.data(), value.size() };
+	}
+
+	template <typename T> struct span_wrapper
+	{
+		std::vector<T> vec;
+		operator std::span<T>() noexcept { return std::span<T>{ vec.data(), vec.size() }; }
+	};
+
+	static span_wrapper<T> forward( storage_type &value ) noexcept
+	  requires !std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		span_wrapper<T> out;
+		out.vec.reserve( value.size() );
+
+		for ( auto &v : value )
+			out.vec.push_back( type_mapper<T>::forward( v ) );
+
+		return out;
+	}
 };
 
 template <typename T, typename A>
@@ -119,9 +153,11 @@ size_t to_chars( tag<std::vector<T, A>>, std::span<char> buff, const std::vector
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <detail::is_map_like M> struct tag<M>
+template <detail::is_map_like M> struct type_mapper<M>
 {
 	using inner_type = typename M::value_type;
+	using storage_type = std::remove_cvref_t<M>;
+	static storage_type &forward( storage_type &value ) noexcept { return value; }
 };
 
 template <typename K, typename T, typename P, typename A>

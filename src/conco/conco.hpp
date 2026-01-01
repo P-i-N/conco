@@ -116,6 +116,22 @@ struct context final
 	tokenizer args;                    // Tokenizer for command arguments
 	tokenizer default_args;            // Tokenizer for default arguments (if any)
 	output &out;                       // Result of the command execution
+
+	token next_arg_value() noexcept
+	{
+		token default_value = std::nullopt;
+		if ( default_args.next() ) // Consume optional argument name
+		{
+			if ( default_args.consume_char_if( '=' ) )
+				default_value = default_args.next();
+		}
+
+		token arg = args.next();
+		if ( !arg && default_value )
+			arg = default_value;
+
+		return arg;
+	}
 };
 
 /**
@@ -148,9 +164,8 @@ struct descriptor final
 	std::span<const type_info *const> arg_type_infos;
 	const type_info *result_type_info = nullptr;
 
-	uint8_t arg_count = 0;         // Number of real (program) arguments
-	uint8_t command_arg_count = 0; // Number of textual arguments, minimum required
-	bool has_tail_args = false;    // Whether the last argument is a tokenizer for variadic tail arguments
+	uint8_t arg_count = 0;      // Number of real (program) arguments
+	bool has_tail_args = false; // Whether the last argument is a tokenizer for variadic tail arguments
 
 	template <typename I, typename Traits = typename I::traits> static const descriptor &get()
 	{
@@ -159,7 +174,6 @@ struct descriptor final
 			                               .arg_type_infos = { Traits::arg_type_infos, Traits::arg_count },
 			                               .result_type_info = Traits::result_type_info,
 			                               .arg_count = Traits::arg_count,
-			                               .command_arg_count = Traits::command_arg_count,
 			                               .has_tail_args = Traits::has_tail_args };
 
 		return desc;
@@ -167,6 +181,22 @@ struct descriptor final
 };
 
 template <typename T> struct tag
+{};
+
+template <typename T> struct type_mapper
+{
+	using inner_type = void;
+	using storage_type = std::remove_cvref_t<T>;
+
+	/**
+	 * Converts the stored argument value into the type expected by the command function.
+	 * For generic types, this is just an identity function. Special types can do more complex
+	 * conversions at this point (e.g., forward `std::vector<T>` storage into `std::span<T>`).
+	 */
+	static T &forward( storage_type &value ) noexcept { return value; }
+};
+
+template <> struct type_mapper<void>
 {
 	using inner_type = void;
 };
@@ -181,25 +211,109 @@ template <typename T> constexpr std::string_view type_name( tag<std::optional<T>
 	return "optional";
 }
 
-template <typename T> struct tag<std::optional<T>>
+template <typename T> struct type_mapper<std::optional<T>>
 {
 	using inner_type = T;
+	using storage_type = std::optional<typename type_mapper<T>::storage_type>;
+
+	static std::optional<T> &forward( storage_type &value ) noexcept
+	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		return value;
+	}
+
+	static std::optional<T> forward( storage_type &value ) noexcept
+	  requires( !std::is_same_v<typename type_mapper<T>::storage_type, T> )
+	{
+		return value ? std::optional<T>( type_mapper<T>::forward( *value ) ) : std::nullopt;
+	}
 };
+
+template <typename T>
+size_t to_chars( tag<std::optional<T>>, std::span<char> buff, const std::optional<T> &value ) noexcept
+{
+	if ( value )
+		return to_chars( tag<T>{}, buff, *value );
+
+	buff[0] = '\0';
+	return 1;
+}
 
 template <typename T> inline static constexpr const type_info *const type_info::get() noexcept
 {
 	static constexpr const type_info ti = { .name = type_name( tag<T>{} ),
 		                                      .inner_type_info = []() noexcept -> const type_info * {
-		                                        using inner_type = typename tag<T>::inner_type;
+		                                        using inner_type = typename type_mapper<T>::inner_type;
 
 		                                        if constexpr ( std::is_same_v<inner_type, void> == false )
-			                                        return type_info::get<typename tag<T>::inner_type>();
+			                                        return type_info::get<typename type_mapper<T>::inner_type>();
 		                                        else
 			                                        return nullptr;
 		                                      }() };
 
 	return &ti;
 }
+
+template <typename T, typename S = typename type_mapper<T>::storage_type>
+static S parse( tag<T>, context &ctx ) noexcept
+{
+	if ( token arg = ctx.next_arg_value(); arg )
+	{
+		++ctx.out.arg_count;
+
+		if ( auto parsed_opt = from_string( tag<S>{}, *arg ); parsed_opt )
+			return *parsed_opt;
+
+		ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
+	}
+	else
+	{
+		ctx.out.not_enough_arguments = true;
+	}
+
+	return S{};
+}
+
+template <typename T, typename S = typename type_mapper<T>::storage_type>
+static std::optional<S> parse( tag<std::optional<T>>, context &ctx ) noexcept
+{
+	if ( token arg = ctx.next_arg_value(); arg )
+	{
+		++ctx.out.arg_count;
+
+		if ( auto parsed_opt = from_string( tag<S>{}, *arg ); parsed_opt )
+			return *parsed_opt;
+
+		ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
+	}
+
+	return std::nullopt;
+}
+
+static tokenizer &parse( tag<tokenizer &>, context &ctx ) noexcept
+{
+	return ctx.args;
+}
+
+static output &parse( tag<output &>, context &ctx ) noexcept
+{
+	return ctx.out;
+}
+
+static const context &parse( tag<const context &>, context &ctx ) noexcept
+{
+	return ctx;
+}
+
+template <typename U>
+  requires std::is_same_v<std::remove_cvref_t<U>, tokenizer> || std::is_same_v<U, output &> ||
+           std::is_same_v<U, const context &>
+struct type_mapper<U>
+{
+	using inner_type = void;
+	using storage_type = U;
+	static U &forward( U &value ) noexcept { return value; }
+};
 
 } // namespace conco
 
@@ -227,36 +341,6 @@ struct has_n_members_t<std::tuple<Args...>, N> : std::bool_constant<sizeof...( A
 {};
 
 template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
-
-template <typename T> struct arg_type_helper
-{
-	using arg_tuple_type = std::remove_cvref_t<T>; // How the parsed argument will appear in the args tuple
-	static constexpr size_t command_arg_count = 1; // Number of command arguments this type consumes
-	template <typename T> static T &to_call_arg( T &value ) noexcept { return value; }
-};
-
-template <typename U>
-  requires std::is_same_v<std::remove_cvref_t<U>, tokenizer>
-struct arg_type_helper<U>
-{
-	using arg_tuple_type = U;                      // As-is
-	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
-	static U &to_call_arg( U &value ) noexcept { return value; }
-};
-
-template <> struct arg_type_helper<output &>
-{
-	using arg_tuple_type = output &;               // As-is
-	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
-	static output &to_call_arg( output &value ) noexcept { return value; }
-};
-
-template <> struct arg_type_helper<const context &>
-{
-	using arg_tuple_type = const context &;        // As-is
-	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
-	static const context &to_call_arg( const context &value ) noexcept { return value; }
-};
 
 template <typename T> struct std_optional_helper : std::false_type
 {};
@@ -300,7 +384,6 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 	using return_type = RT;
 
 	static constexpr size_t arg_count = sizeof...( Args );
-	static constexpr size_t command_arg_count = ( ( arg_type_helper<Args>::command_arg_count ) + ... + 0 );
 
 	static constexpr bool has_tail_args = ( std::is_same_v<std::remove_cvref_t<Args>, tokenizer> || ... || false );
 
@@ -309,9 +392,6 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 	};
 
 	static constexpr const type_info *const result_type_info = type_info::get<RT>();
-
-	static_assert( command_arg_count <= arg_count,
-	               "Number of command arguments cannot be greater than total number of arguments!" );
 };
 
 /**
@@ -334,58 +414,6 @@ inline token next_arg_value( context &ctx ) noexcept
 }
 
 /**
- * For generic types, extracts next argument from the command line and attempts to parse it
- * into the desired type. Some special "built-in" types are returned directly without parsing.
- */
-template <typename T> static T parse_arg( context &ctx ) noexcept
-{
-	// `tokenizer` allowed as whatever, it will only see remaining tail arguments
-	if constexpr ( std::is_same_v<std::remove_cvref_t<T>, tokenizer> )
-		return ctx.args;
-	// `output` only allowed as ref, because user *IS* expected to modify it
-	else if constexpr ( std::is_same_v<T, output &> )
-		return ctx.out;
-	// `context` only allowed as const ref, so the user can't modify it from inside command functions
-	else if constexpr ( std::is_same_v<T, const context &> )
-		return ctx;
-	// std::optional<U>
-	else if constexpr ( std_optional_helper<T>::value )
-	{
-		if ( token arg = next_arg_value( ctx ); arg )
-		{
-			++ctx.out.arg_count;
-
-			using U = typename std_optional_helper<T>::type;
-			if ( auto parsed_opt = from_string( tag<U>{}, *arg ); parsed_opt )
-				return *parsed_opt;
-
-			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
-		}
-
-		return std::nullopt;
-	}
-	// Everything else is parsed and converted from string into the desired type
-	else
-	{
-		if ( token arg = next_arg_value( ctx ); arg )
-		{
-			++ctx.out.arg_count;
-
-			if ( auto parsed_opt = from_string( tag<T>{}, *arg ); parsed_opt )
-				return *parsed_opt;
-
-			ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
-		}
-		else
-		{
-			ctx.out.not_enough_arguments = true;
-		}
-
-		return T{};
-	}
-}
-
-/**
  * Creates a tuple of parsed arguments for the given command function/method.
  *
  * For example, for a function `void foo(int, float, std::string)`, this will return
@@ -394,46 +422,30 @@ template <typename T> static T parse_arg( context &ctx ) noexcept
  */
 template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
 {
-	using result_t = std::tuple<typename arg_type_helper<Args>::arg_tuple_type...>;
+	using result_t = std::tuple<typename type_mapper<Args>::storage_type...>;
 
-	// Using brace initialization to guarantee left-to-right evaluation order or `parse_arg<>()` calls
-	return result_t{ ( parse_arg<typename arg_type_helper<Args>::arg_tuple_type>( ctx ) )... };
+	// Using brace initialization to guarantee left-to-right evaluation order or `parse()` calls
+	return result_t{ ( parse( tag<Args>{}, ctx ) )... };
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification
 template <typename RT, typename... Args> static bool apply( context &ctx, auto &&callable, auto &&args_tuple )
 {
+	ctx.out.result_error = false;
+
 	if constexpr ( std::is_void_v<RT> )
 	{
-		ctx.out.result_error = false;
-
-		auto cb = [&callable]( auto &&...args ) { callable( arg_type_helper<Args>::to_call_arg( args )... ); };
+		auto cb = [&callable]( auto &&...args ) { callable( type_mapper<Args>::forward( args )... ); };
 		std::apply( cb, args_tuple );
 		if ( !ctx.out.buffer.empty() )
 			ctx.out.buffer[0] = '\0';
 	}
 	else
 	{
-		auto cb = [&callable]( auto &&...args ) -> RT { return callable( arg_type_helper<Args>::to_call_arg( args )... ); };
+		auto cb = [&callable]( auto &&...args ) -> RT { return callable( type_mapper<Args>::forward( args )... ); };
 		auto r = std::apply( cb, args_tuple );
-
-		if constexpr ( std_optional_helper<RT>::value )
-		{
-			using U = typename std_optional_helper<RT>::type;
-
-			if ( !ctx.out.buffer.empty() )
-			{
-				if ( r )
-					ctx.out.result_error = ( to_chars( tag<U>{}, ctx.out.buffer, *r ) == 0 );
-				else
-					ctx.out.buffer[0] = '\0';
-			}
-		}
-		else
-		{
-			if ( !ctx.out.buffer.empty() )
-				ctx.out.result_error = ( to_chars( tag<RT>{}, ctx.out.buffer, r ) == 0 );
-		}
+		if ( !ctx.out.buffer.empty() )
+			ctx.out.result_error = ( to_chars( tag<RT>{}, ctx.out.buffer, r ) == 0 );
 	}
 
 	return true;

@@ -330,7 +330,6 @@ TEST_SUITE( "Callback types" )
 		};
 
 		CHECK( commands[0].desc.arg_count == 2 );
-		CHECK( commands[0].desc.command_arg_count == 2 );
 
 		char buffer[64] = { 0 };
 
@@ -357,7 +356,6 @@ TEST_SUITE( "Callback types" )
 		};
 
 		CHECK( commands[0].desc.arg_count == 2 );
-		CHECK( commands[0].desc.command_arg_count == 2 );
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "add 100 250;", buffer ) == conco::result::success );
@@ -384,7 +382,6 @@ TEST_SUITE( "Callback types" )
 		};
 
 		CHECK( commands[0].desc.arg_count == 2 );
-		CHECK( commands[0].desc.command_arg_count == 2 );
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "mul 12 34", buffer ) == conco::result::success );
@@ -879,6 +876,20 @@ TEST_SUITE( "STL types" )
 			   return sum;
 			 },
 			  "sum_array" },
+			{ +[]( std::span<const char *> arr ) -> std::string {
+			   std::string result = "Strings: ";
+			   for ( auto s : arr )
+				   result += std::string( s );
+			   return result;
+			 },
+			  "concat_strings" },
+			{ +[]( std::optional<const char *> c_str ) -> std::optional<const char *> {
+			   if ( !c_str.has_value() || ( *c_str ) == nullptr )
+				   return std::nullopt;
+
+			   return c_str;
+			 },
+			  "optional_c_str" },
 		};
 
 		char buffer[64] = { 0 };
@@ -886,5 +897,11 @@ TEST_SUITE( "STL types" )
 		REQUIRE( std::string_view( buffer ) == "\"Got: Hello, world!\"" );
 		CHECK( execute( commands, "sum_array {1 2 3 4 5}", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "15" );
+		CHECK( execute( commands, "concat_strings {'one' 'two' 'three'}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "\"Strings: onetwothree\"" );
+		CHECK( execute( commands, "optional_c_str 'Test string'", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "\"Test string\"" );
+		CHECK( execute( commands, "optional_c_str", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "" );
 	}
 }
