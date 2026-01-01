@@ -867,4 +867,24 @@ TEST_SUITE( "STL types" )
 		CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 \"key1\"=100 \"key2\"=200 \"key3\"=300}" );
 	}
+
+	TEST_CASE( "Background conversions" )
+	{
+		const conco::command commands[] = {
+			{ +[]( const char *c_str ) -> std::string { return std::string( "Got: " ) + std::string( c_str ); }, "c_str" },
+			{ +[]( std::span<int> arr ) -> int {
+			   int sum = 0;
+			   for ( auto v : arr )
+				   sum += v;
+			   return sum;
+			 },
+			  "sum_array" },
+		};
+
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "c_str 'Hello, world!'", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "\"Got: Hello, world!\"" );
+		CHECK( execute( commands, "sum_array {1 2 3 4 5}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
+	}
 }

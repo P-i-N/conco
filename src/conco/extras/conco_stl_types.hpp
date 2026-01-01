@@ -18,6 +18,23 @@ concept is_map_like = requires {
 	{ M{}.emplace( std::declval<typename M::key_type>(), std::declval<typename M::mapped_type>() ) };
 } && std::is_same_v<typename M::value_type, std::pair<const typename M::key_type, typename M::mapped_type>>;
 
+template <> struct arg_type_helper<const char *>
+{
+	using arg_tuple_type = std::string;
+	static constexpr size_t command_arg_count = 1;
+	static const char *to_call_arg( std::string &value ) noexcept { return value.c_str(); }
+};
+
+template <typename T> struct arg_type_helper<std::span<T>>
+{
+	using arg_tuple_type = std::vector<T>;
+	static constexpr size_t command_arg_count = 1;
+	static std::span<T> to_call_arg( std::vector<T> &value ) noexcept
+	{
+		return std::span<T>{ value.data(), value.size() };
+	}
+};
+
 } // namespace conco::detail
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -50,6 +67,11 @@ template <typename T, typename A> constexpr std::string_view type_name( tag<std:
 {
 	return "vector";
 }
+
+template <typename T> struct tag<std::span<T>>
+{
+	using inner_type = T;
+};
 
 template <typename T, typename A>
 std::optional<std::vector<T, A>> from_string( tag<std::vector<T, A>>, std::string_view str ) noexcept

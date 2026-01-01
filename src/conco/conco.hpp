@@ -232,6 +232,7 @@ template <typename T> struct arg_type_helper
 {
 	using arg_tuple_type = std::remove_cvref_t<T>; // How the parsed argument will appear in the args tuple
 	static constexpr size_t command_arg_count = 1; // Number of command arguments this type consumes
+	template <typename T> static T &to_call_arg( T &value ) noexcept { return value; }
 };
 
 template <typename U>
@@ -240,18 +241,21 @@ struct arg_type_helper<U>
 {
 	using arg_tuple_type = U;                      // As-is
 	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
+	static U &to_call_arg( U &value ) noexcept { return value; }
 };
 
 template <> struct arg_type_helper<output &>
 {
 	using arg_tuple_type = output &;               // As-is
 	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
+	static output &to_call_arg( output &value ) noexcept { return value; }
 };
 
 template <> struct arg_type_helper<const context &>
 {
 	using arg_tuple_type = const context &;        // As-is
 	static constexpr size_t command_arg_count = 0; // Does not consume any command arguments
+	static const context &to_call_arg( const context &value ) noexcept { return value; }
 };
 
 template <typename T> struct std_optional_helper : std::false_type
@@ -397,18 +401,21 @@ template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification
-template <typename RT> static bool apply( context &ctx, auto &&callable, auto &&args_tuple )
+template <typename RT, typename... Args> static bool apply( context &ctx, auto &&callable, auto &&args_tuple )
 {
 	if constexpr ( std::is_void_v<RT> )
 	{
 		ctx.out.result_error = false;
-		std::apply( callable, args_tuple );
+
+		auto cb = [&callable]( auto &&...args ) { callable( arg_type_helper<Args>::to_call_arg( args )... ); };
+		std::apply( cb, args_tuple );
 		if ( !ctx.out.buffer.empty() )
 			ctx.out.buffer[0] = '\0';
 	}
 	else
 	{
-		auto r = std::apply( callable, args_tuple );
+		auto cb = [&callable]( auto &&...args ) -> RT { return callable( arg_type_helper<Args>::to_call_arg( args )... ); };
+		auto r = std::apply( cb, args_tuple );
 
 		if constexpr ( std_optional_helper<RT>::value )
 		{
@@ -445,7 +452,7 @@ template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args.
 			return false;
 
 		auto callable = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
-		return apply<RT>( ctx, callable, args_tuple );
+		return apply<RT, Args...>( ctx, callable, args_tuple );
 	}
 };
 
@@ -464,7 +471,7 @@ struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
 
 		auto *obj = static_cast<C *>( ctx.out.cmd->target );
 		auto callable = [obj]( auto &&...args ) -> RT { return ( *obj )( std::forward<decltype( args )>( args )... ); };
-		return apply<RT>( ctx, callable, args_tuple );
+		return apply<RT, Args...>( ctx, callable, args_tuple );
 	}
 };
 
@@ -487,7 +494,7 @@ struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
 
 		auto *obj = static_cast<C *>( ctx.out.cmd->target );
 		auto callable = [obj]( auto &&...args ) -> RT { return ( obj->*M )( std::forward<decltype( args )>( args )... ); };
-		return apply<RT>( ctx, callable, args_tuple );
+		return apply<RT, Args...>( ctx, callable, args_tuple );
 	}
 };
 
