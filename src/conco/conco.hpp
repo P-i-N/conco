@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -136,6 +135,7 @@ struct context final
 
 /**
  * Holds runtime stringified type information about a single argument or return type.
+ * You can use this to provide better help texts, error messages, etc. at runtime.
  *
  * This is used in `descriptor` below to describe argument and return types of commands.
  * All names are filled from `type_name()` functions at compile-time.
@@ -180,12 +180,34 @@ struct descriptor final
 	}
 };
 
+/**
+ * Empty tag type for type-based dispatching and easier specialization.
+ */
 template <typename T> struct tag
 {};
 
+/**
+ * Maps command function argument types into storage types used during parsing and invocation.
+ *
+ * For generic types, the storage type is the same as the argument type. Meaning - if your command
+ * function takes `int`, the argument is intermediately stored as `int` as well.
+ *
+ * For more complex types, you can specialize this structure to provide different storage types.
+ * Typical example: `const char *` function arguments require `std::string` storage to hold the
+ * parsed string value.
+ */
 template <typename T> struct type_mapper
 {
+	/**
+	 * The inner type used for nested type information (e.g., `T` in `std::optional<T>`)
+	 * This is used by `type_info` to build type hierarchies for complex types.
+	 */
 	using inner_type = void;
+
+	/**
+	 * The storage type used during argument parsing and invocation.
+	 * This is where the parsed argument "lives" before being forwarded into the command function.
+	 */
 	using storage_type = std::remove_cvref_t<T>;
 
 	/**
@@ -196,47 +218,19 @@ template <typename T> struct type_mapper
 	static T &forward( storage_type &value ) noexcept { return value; }
 };
 
+// Fallback specialization for `void` type - no storage, no forwarding
 template <> struct type_mapper<void>
 {
 	using inner_type = void;
 };
 
+/**
+ * Provides a human-friendly name for a specified type.
+ * This is used to fill `type_info` structures at compile-time.
+ */
 constexpr std::string_view type_name( auto ) noexcept
 {
 	return std::string_view(); // Empty fallback for unknown types
-}
-
-template <typename T> constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
-{
-	return "optional";
-}
-
-template <typename T> struct type_mapper<std::optional<T>>
-{
-	using inner_type = T;
-	using storage_type = std::optional<typename type_mapper<T>::storage_type>;
-
-	static std::optional<T> &forward( storage_type &value ) noexcept
-	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
-	{
-		return value;
-	}
-
-	static std::optional<T> forward( storage_type &value ) noexcept
-	  requires( !std::is_same_v<typename type_mapper<T>::storage_type, T> )
-	{
-		return value ? std::optional<T>( type_mapper<T>::forward( *value ) ) : std::nullopt;
-	}
-};
-
-template <typename T>
-size_t to_chars( tag<std::optional<T>>, std::span<char> buff, const std::optional<T> &value ) noexcept
-{
-	if ( value )
-		return to_chars( tag<T>{}, buff, *value );
-
-	buff[0] = '\0';
-	return 1;
 }
 
 template <typename T> inline static constexpr const type_info *const type_info::get() noexcept
@@ -274,22 +268,6 @@ static S parse( tag<T>, context &ctx ) noexcept
 	return S{};
 }
 
-template <typename T, typename S = typename type_mapper<T>::storage_type>
-static std::optional<S> parse( tag<std::optional<T>>, context &ctx ) noexcept
-{
-	if ( token arg = ctx.next_arg_value(); arg )
-	{
-		++ctx.out.arg_count;
-
-		if ( auto parsed_opt = from_string( tag<S>{}, *arg ); parsed_opt )
-			return *parsed_opt;
-
-		ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
-	}
-
-	return std::nullopt;
-}
-
 static tokenizer &parse( tag<tokenizer &>, context &ctx ) noexcept
 {
 	return ctx.args;
@@ -322,33 +300,6 @@ struct type_mapper<U>
 /* Here be dragons... */
 
 namespace conco::detail {
-
-struct any
-{
-	template <typename T> operator T() const;
-};
-
-template <typename T, std::size_t N>
-concept has_n_members = []<std::size_t... Is>( std::index_sequence<Is...> ) {
-	return requires { std::remove_cvref_t<T>{ ( void( Is ), detail::any{} )... }; };
-}( std::make_index_sequence<N>{} );
-
-template <typename T, std::size_t N> struct has_n_members_t : std::bool_constant<has_n_members<T, N>>
-{};
-
-template <typename... Args, std::size_t N>
-struct has_n_members_t<std::tuple<Args...>, N> : std::bool_constant<sizeof...( Args ) == N>
-{};
-
-template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
-
-template <typename T> struct std_optional_helper : std::false_type
-{};
-
-template <typename U> struct std_optional_helper<std::optional<U>> : std::true_type
-{
-	using type = U;
-};
 
 // Extracts the signature from member function pointer types
 template <typename T> struct signature_helper;
@@ -393,25 +344,6 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
 
 	static constexpr const type_info *const result_type_info = type_info::get<RT>();
 };
-
-/**
- * Extracts the next argument value from the command line or try to take one from default arguments.
- */
-inline token next_arg_value( context &ctx ) noexcept
-{
-	token default_value = std::nullopt;
-	if ( ctx.default_args.next() ) // Consume optional argument name
-	{
-		if ( ctx.default_args.consume_char_if( '=' ) )
-			default_value = ctx.default_args.next();
-	}
-
-	token arg = ctx.args.next();
-	if ( !arg && default_value )
-		arg = default_value;
-
-	return arg;
-}
 
 /**
  * Creates a tuple of parsed arguments for the given command function/method.

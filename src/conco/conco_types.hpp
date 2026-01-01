@@ -5,6 +5,7 @@
 #include <array>
 #include <concepts>
 #include <charconv>
+#include <optional>
 
 namespace conco::detail {
 
@@ -33,6 +34,26 @@ concept is_tuple_like = requires { sizeof( std::tuple_size<T> ); };
 template <typename T>
 concept is_struct_bindable = std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
                              std::is_aggregate_v<std::remove_cvref_t<T>>;
+
+struct any
+{
+	template <typename T> operator T() const;
+};
+
+template <typename T, std::size_t N>
+concept has_n_members = []<std::size_t... Is>( std::index_sequence<Is...> ) {
+	// Check if we can aggregate-initialize T with N `any` arguments
+	return requires { std::remove_cvref_t<T>{ ( void( Is ), any{} )... }; };
+}( std::make_index_sequence<N>{} );
+
+template <typename T, std::size_t N> struct has_n_members_t : std::bool_constant<has_n_members<T, N>>
+{};
+
+template <typename... Args, std::size_t N>
+struct has_n_members_t<std::tuple<Args...>, N> : std::bool_constant<sizeof...( Args ) == N>
+{};
+
+template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
 
 } // namespace conco::detail
 
@@ -266,6 +287,57 @@ template <typename T, size_t N>
 size_t to_chars( tag<std::array<T, N>>, std::span<char> buff, const std::array<T, N> &value ) noexcept
 {
 	return to_chars( tag<std::span<const T>>{}, buff, std::span<const T>{ value.data(), N } );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template <typename T> constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
+{
+	return "optional";
+}
+
+template <typename T> struct type_mapper<std::optional<T>>
+{
+	using inner_type = T;
+	using storage_type = std::optional<typename type_mapper<T>::storage_type>;
+
+	static std::optional<T> &forward( storage_type &value ) noexcept
+	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
+	{
+		return value;
+	}
+
+	static std::optional<T> forward( storage_type &value ) noexcept
+	  requires( !std::is_same_v<typename type_mapper<T>::storage_type, T> )
+	{
+		return value ? std::optional<T>( type_mapper<T>::forward( *value ) ) : std::nullopt;
+	}
+};
+
+template <typename T>
+size_t to_chars( tag<std::optional<T>>, std::span<char> buff, const std::optional<T> &value ) noexcept
+{
+	if ( value )
+		return to_chars( tag<T>{}, buff, *value );
+
+	buff[0] = '\0';
+	return 1;
+}
+
+template <typename T, typename S = typename type_mapper<T>::storage_type>
+static std::optional<S> parse( tag<std::optional<T>>, context &ctx ) noexcept
+{
+	if ( token arg = ctx.next_arg_value(); arg )
+	{
+		++ctx.out.arg_count;
+
+		if ( auto parsed_opt = from_string( tag<S>{}, *arg ); parsed_opt )
+			return *parsed_opt;
+
+		ctx.out.arg_error_mask |= static_cast<uint32_t>( 1u << ( ctx.out.arg_count - 1 ) );
+	}
+
+	return std::nullopt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
