@@ -14,6 +14,7 @@ BraceWrapping:
   SplitEmptyRecord: false
   SplitEmptyNamespace: false
 BreakBeforeBraces: Custom
+BreakTemplateDeclarations: Yes
 ColumnLimit: 120
 TabWidth: 2
 UseTab: ForIndentation
@@ -34,7 +35,7 @@ PenaltyReturnTypeOnItsOwnLine: 200
 SpacesInCStyleCastParentheses: true
 Standard: Auto
 SortIncludes: false
-AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortFunctionsOnASingleLine: All
 Cpp11BracedListStyle: false
 AlignEscapedNewlines: DontAlign
 ...
