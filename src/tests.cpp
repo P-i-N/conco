@@ -251,10 +251,7 @@ TEST_SUITE( "Simple setter" )
 {
 	int value = 1;
 
-	void set( int x )
-	{
-		value = x;
-	}
+	void set( int x ) { value = x; }
 
 	TEST_CASE( "Simple setter" )
 	{
@@ -273,15 +270,9 @@ TEST_SUITE( "Simple setter" )
 
 TEST_SUITE( "Capture results" )
 {
-	int sum( int x, int y )
-	{
-		return x + y;
-	}
+	int sum( int x, int y ) { return x + y; }
 
-	const char *c_str()
-	{
-		return "Hello!";
-	}
+	const char *c_str() { return "Hello!"; }
 
 	TEST_CASE( "Capture results" )
 	{
@@ -494,10 +485,7 @@ TEST_SUITE( "Tail arguments" )
 
 TEST_SUITE( "std::optional<T>" )
 {
-	int foo( std::optional<int> x )
-	{
-		return x.value_or( 42 );
-	}
+	int foo( std::optional<int> x ) { return x.value_or( 42 ); }
 
 	TEST_CASE( "std::optional<T>" )
 	{
@@ -538,10 +526,7 @@ TEST_SUITE( "std::optional<T>" )
 
 TEST_SUITE( "Error handling" )
 {
-	int divide( int x, int y )
-	{
-		return x / y;
-	}
+	int divide( int x, int y ) { return x / y; }
 
 	TEST_CASE( "Result" )
 	{
@@ -656,10 +641,7 @@ struct point
 	int x, y;
 };
 
-constexpr std::string_view type_name( conco::tag<point> ) noexcept
-{
-	return "point";
-}
+constexpr std::string_view type_name( conco::tag<point> ) noexcept { return "point"; }
 
 std::optional<point> from_string( conco::tag<point>, std::string_view str ) noexcept
 {
@@ -687,10 +669,7 @@ bool to_chars( conco::tag<point>, std::span<char> buffer, point p ) noexcept
 
 TEST_SUITE( "Custom types" )
 {
-	point add_points( point p1, point p2 )
-	{
-		return point{ p1.x + p2.x, p1.y + p2.y };
-	}
+	point add_points( point p1, point p2 ) { return point{ p1.x + p2.x, p1.y + p2.y }; }
 
 	TEST_CASE( "Custom type" )
 	{
@@ -778,7 +757,7 @@ TEST_SUITE( "STL types" )
 	TEST_CASE( "std::vector" )
 	{
 		const conco::command commands[] = {
-			{ +[]( const std::vector<int> &vec ) -> int {
+			{ +[]( std::vector<int> vec ) -> int {
 			   int sum = 0;
 			   for ( auto v : vec )
 				   sum += v;

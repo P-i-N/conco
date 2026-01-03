@@ -78,8 +78,10 @@ private:
 	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_args( n )
 	{}
 
-	template <auto M, typename C> friend command method( C &ctx, const char *n );
-	template <auto M, typename C> friend command method( const C &ctx, const char *n );
+	template <auto M, typename C>
+	friend command method( C &ctx, const char *n );
+	template <auto M, typename C>
+	friend command method( const C &ctx, const char *n );
 };
 
 /**
@@ -146,7 +148,8 @@ struct type_info
 	const type_info *const inner_type_info = nullptr; // Pointer to inner type info, if any (usually the <T> type)
 
 	// Gets the `type_info` instance for the given type `T`. `void` type results in `nullptr`.
-	template <typename T> static constexpr const type_info *const get() noexcept;
+	template <typename T>
+	static constexpr const type_info *const get() noexcept;
 };
 
 /**
@@ -167,7 +170,8 @@ struct descriptor final
 	uint8_t arg_count = 0;      // Number of real (program) arguments
 	bool has_tail_args = false; // Whether the last argument is a tokenizer for variadic tail arguments
 
-	template <typename I, typename Traits = typename I::traits> static const descriptor &get()
+	template <typename I, typename Traits = typename I::traits>
+	static const descriptor &get()
 	{
 		static const descriptor desc = { .invoker = &I::call,
 			                               // Explicitly construct span with `arg_count` to trim the dummy element
@@ -183,7 +187,8 @@ struct descriptor final
 /**
  * Empty tag type for type-based dispatching and easier specialization.
  */
-template <typename T> struct tag
+template <typename T>
+struct tag
 {};
 
 /**
@@ -196,7 +201,8 @@ template <typename T> struct tag
  * Typical example: `const char *` function arguments require `std::string` storage to hold the
  * parsed string value.
  */
-template <typename T> struct type_mapper
+template <typename T>
+struct type_mapper
 {
 	/**
 	 * The inner type used for nested type information (e.g., `T` in `std::optional<T>`)
@@ -215,13 +221,22 @@ template <typename T> struct type_mapper
 	 * For generic types, this is just an identity function. Special types can do more complex
 	 * conversions at this point (e.g., forward `std::vector<T>` storage into `std::span<T>`).
 	 */
-	static T &forward( storage_type &value ) noexcept { return value; }
+	static T map( storage_type &value ) noexcept { return static_cast<T>( value ); }
 };
 
 // Fallback specialization for `void` type - no storage, no forwarding
-template <> struct type_mapper<void>
+template <>
+struct type_mapper<void>
 {
 	using inner_type = void;
+};
+
+template <typename T>
+struct ref_type_mapper
+{
+	using inner_type = void;
+	using storage_type = T &;
+	static T &map( storage_type &value ) noexcept { return static_cast<T &>( value ); }
 };
 
 /**
@@ -233,7 +248,8 @@ constexpr std::string_view type_name( auto ) noexcept
 	return std::string_view(); // Empty fallback for unknown types
 }
 
-template <typename T> inline static constexpr const type_info *const type_info::get() noexcept
+template <typename T>
+inline static constexpr const type_info *const type_info::get() noexcept
 {
 	static constexpr const type_info ti = { .name = type_name( tag<T>{} ),
 		                                      .inner_type_info = []() noexcept -> const type_info * {
@@ -268,30 +284,23 @@ static S parse( tag<T>, context &ctx ) noexcept
 	return S{};
 }
 
-static tokenizer &parse( tag<tokenizer &>, context &ctx ) noexcept
-{
-	return ctx.args;
-}
+static tokenizer &parse( tag<tokenizer &>, context &ctx ) noexcept { return ctx.args; }
 
-static output &parse( tag<output &>, context &ctx ) noexcept
-{
-	return ctx.out;
-}
+template <>
+struct type_mapper<tokenizer &> : ref_type_mapper<tokenizer &>
+{};
 
-static const context &parse( tag<const context &>, context &ctx ) noexcept
-{
-	return ctx;
-}
+static output &parse( tag<output &>, context &ctx ) noexcept { return ctx.out; }
 
-template <typename U>
-  requires std::is_same_v<std::remove_cvref_t<U>, tokenizer> || std::is_same_v<U, output &> ||
-           std::is_same_v<U, const context &>
-struct type_mapper<U>
-{
-	using inner_type = void;
-	using storage_type = U;
-	static U &forward( U &value ) noexcept { return value; }
-};
+template <>
+struct type_mapper<output &> : ref_type_mapper<output &>
+{};
+
+static const context &parse( tag<const context &>, context &ctx ) noexcept { return ctx; }
+
+template <>
+struct type_mapper<const context &> : ref_type_mapper<const context &>
+{};
 
 } // namespace conco
 
@@ -302,9 +311,11 @@ struct type_mapper<U>
 namespace conco::detail {
 
 // Extracts the signature from member function pointer types
-template <typename T> struct signature_helper;
+template <typename T>
+struct signature_helper;
 
-template <typename C, typename RT, typename... Args> struct signature_helper<RT ( C::* )( Args... )>
+template <typename C, typename RT, typename... Args>
+struct signature_helper<RT ( C::* )( Args... )>
 {
 	using type = RT( Args... );
 	static constexpr bool is_const = false;
@@ -314,7 +325,8 @@ template <typename C, typename RT, typename... Args>
 struct signature_helper<RT ( C::* )( Args... ) noexcept> : signature_helper<RT ( C::* )( Args... )>
 {};
 
-template <typename C, typename RT, typename... Args> struct signature_helper<RT ( C::* )( Args... ) const>
+template <typename C, typename RT, typename... Args>
+struct signature_helper<RT ( C::* )( Args... ) const>
 {
 	using type = RT( Args... );
 	static constexpr bool is_const = true;
@@ -324,10 +336,12 @@ template <typename C, typename RT, typename... Args>
 struct signature_helper<RT ( C::* )( Args... ) const noexcept> : signature_helper<RT ( C::* )( Args... ) const>
 {};
 
-template <typename F> struct command_traits;
+template <typename F>
+struct command_traits;
 
 // Reflects function/method signatures into information about arguments and return type
-template <typename RT, typename... Args> struct command_traits<RT( Args... )>
+template <typename RT, typename... Args>
+struct command_traits<RT( Args... )>
 {
 	static_assert( sizeof...( Args ) <= ( sizeof( output::arg_count ) * 8 ), "Too many command arguments!" );
 	static_assert( ( !std::is_rvalue_reference_v<Args> && ... ), "Command arguments cannot be r-value references (&&)!" );
@@ -352,7 +366,8 @@ template <typename RT, typename... Args> struct command_traits<RT( Args... )>
  * a tuple: `std::tuple<int, float, std::string>` with all arguments parsed from the
  * command context.
  */
-template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
+template <typename... Args>
+auto make_args_tuple( context &ctx ) noexcept
 {
 	using result_t = std::tuple<typename type_mapper<Args>::storage_type...>;
 
@@ -361,31 +376,30 @@ template <typename... Args> auto make_args_tuple( context &ctx ) noexcept
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification
-template <typename RT, typename... Args> static bool apply( context &ctx, auto &&callable, auto &&args_tuple )
+template <typename RT>
+static void apply( context &ctx, auto &callable, auto &args_tuple )
 {
 	ctx.out.result_error = false;
 
 	if constexpr ( std::is_void_v<RT> )
 	{
-		auto cb = [&callable]( auto &&...args ) { callable( type_mapper<Args>::forward( args )... ); };
-		std::apply( cb, args_tuple );
+		std::apply( callable, args_tuple );
 		if ( !ctx.out.buffer.empty() )
 			ctx.out.buffer[0] = '\0';
 	}
 	else
 	{
-		auto cb = [&callable]( auto &&...args ) -> RT { return callable( type_mapper<Args>::forward( args )... ); };
-		auto r = std::apply( cb, args_tuple );
+		auto r = std::apply( callable, args_tuple );
 		if ( !ctx.out.buffer.empty() )
 			ctx.out.result_error = ( to_chars( tag<RT>{}, ctx.out.buffer, r ) == 0 );
 	}
-
-	return true;
 }
 
-template <typename F> struct function_invoker;
+template <typename F>
+struct function_invoker;
 
-template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
+template <typename RT, typename... Args>
+struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
 {
 	using traits = command_traits<RT( Args... )>;
 
@@ -395,12 +409,29 @@ template <typename RT, typename... Args> struct function_invoker<RT ( * )( Args.
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto callable = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
-		return apply<RT, Args...>( ctx, callable, args_tuple );
+		auto *target = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
+
+		if constexpr ( std::is_void_v<RT> )
+		{
+			auto callable = [target]( auto &&...args ) {
+				target( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+		else
+		{
+			auto callable = [target]( auto &&...args ) -> RT {
+				return target( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+
+		return true;
 	}
 };
 
-template <typename C, typename F> struct callable_invoker_impl;
+template <typename C, typename F>
+struct callable_invoker_impl;
 
 template <typename C, typename RT, typename... Args>
 struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
@@ -413,9 +444,24 @@ struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto *obj = static_cast<C *>( ctx.out.cmd->target );
-		auto callable = [obj]( auto &&...args ) -> RT { return ( *obj )( std::forward<decltype( args )>( args )... ); };
-		return apply<RT, Args...>( ctx, callable, args_tuple );
+		auto *target = static_cast<C *>( ctx.out.cmd->target );
+
+		if constexpr ( std::is_void_v<RT> )
+		{
+			auto callable = [target]( auto &&...args ) {
+				( *target )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+		else
+		{
+			auto callable = [target]( auto &&...args ) -> RT {
+				return ( *target )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+
+		return true;
 	}
 };
 
@@ -423,7 +469,8 @@ template <typename C>
 struct callable_invoker : callable_invoker_impl<C, typename signature_helper<decltype( &C::operator() )>::type>
 {};
 
-template <typename C, auto M, typename F> struct method_invoker_impl;
+template <typename C, auto M, typename F>
+struct method_invoker_impl;
 
 template <typename C, auto M, typename RT, typename... Args>
 struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
@@ -436,9 +483,24 @@ struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto *obj = static_cast<C *>( ctx.out.cmd->target );
-		auto callable = [obj]( auto &&...args ) -> RT { return ( obj->*M )( std::forward<decltype( args )>( args )... ); };
-		return apply<RT, Args...>( ctx, callable, args_tuple );
+		auto *target = static_cast<C *>( ctx.out.cmd->target );
+
+		if constexpr ( std::is_void_v<RT> )
+		{
+			auto callable = [target]( auto &&...args ) {
+				( target->*M )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+		else
+		{
+			auto callable = [target]( auto &&...args ) -> RT {
+				return ( target->*M )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+			};
+			apply<RT>( ctx, callable, args_tuple );
+		}
+
+		return true;
 	}
 };
 
@@ -468,12 +530,14 @@ inline command::command( C &callable, const char *n )
   : target( &callable ), desc( descriptor::get<detail::callable_invoker<C>>() ), name_and_args( n )
 {}
 
-template <auto M, typename C> command method( C &ctx, const char *n )
+template <auto M, typename C>
+command method( C &ctx, const char *n )
 {
 	return { ctx, descriptor::get<detail::method_invoker<C, M>>(), n };
 }
 
-template <auto M, typename C> command method( const C &ctx, const char *n )
+template <auto M, typename C>
+command method( const C &ctx, const char *n )
 {
 	return { ctx, descriptor::get<detail::method_invoker<const C, M>>(), n };
 }

@@ -24,84 +24,83 @@ concept is_map_like = requires {
 
 namespace conco {
 
-constexpr std::string_view type_name( tag<std::string> ) noexcept
-{
-	return "string";
-}
+constexpr std::string_view type_name( tag<std::string> ) noexcept { return "string"; }
 
-std::optional<std::string> from_string( tag<std::string>, std::string_view str ) noexcept
-{
-	return std::string{ str };
-}
+std::optional<std::string> from_string( tag<std::string>, std::string_view str ) noexcept { return std::string{ str }; }
 
 size_t to_chars( tag<std::string>, std::span<char> buff, const std::string &value ) noexcept
 {
 	return to_chars( tag<std::string_view>{}, buff, std::string_view{ value } );
 }
 
-template <> struct type_mapper<const char *>
+template <>
+struct type_mapper<const char *>
 {
 	using inner_type = void;
 	using storage_type = std::string;
-	static const char *forward( storage_type &value ) noexcept { return value.c_str(); }
+	static const char *map( storage_type &value ) noexcept { return value.c_str(); }
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T, typename A> struct type_mapper<std::vector<T, A>>
+template <typename T, typename A>
+struct type_mapper<std::vector<T, A>>
 {
 	using inner_type = T;
 	using storage_type = std::vector<typename type_mapper<T>::storage_type, A>;
 
-	static storage_type &forward( storage_type &value ) noexcept
+	static storage_type &map( storage_type &value ) noexcept
 	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
 	{
 		return value;
 	}
 
-	static std::vector<T, A> forward( storage_type &value ) noexcept
+	static std::vector<T, A> map( storage_type &value ) noexcept
 	  requires !std::is_same_v<typename type_mapper<T>::storage_type, T>
 	{
 		std::vector<T, A> out;
 		out.reserve( value.size() );
 
 		for ( auto &v : value )
-			out.push_back( type_mapper<T>::forward( v ) );
+			out.push_back( type_mapper<T>::map( v ) );
 
 		return out;
 	}
 };
 
-template <typename T, typename A> constexpr std::string_view type_name( tag<std::vector<T, A>> ) noexcept
+template <typename T, typename A>
+constexpr std::string_view type_name( tag<std::vector<T, A>> ) noexcept
 {
 	return "vector";
 }
 
-template <typename T> struct type_mapper<std::span<T>>
+template <typename T>
+struct type_mapper<std::span<T>>
 {
 	using inner_type = T;
 	using storage_type = std::vector<typename type_mapper<T>::storage_type>;
 
-	static std::span<T> forward( storage_type &value ) noexcept
+	static std::span<T> map( storage_type &value ) noexcept
 	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
 	{
 		return std::span<T>{ value.data(), value.size() };
 	}
 
-	template <typename T> struct span_wrapper
+	template <typename U>
+	struct span_wrapper
 	{
-		std::vector<T> vec;
-		operator std::span<T>() noexcept { return std::span<T>{ vec.data(), vec.size() }; }
+		std::vector<U> vec;
+		operator std::span<U>() noexcept { return std::span<U>{ vec.data(), vec.size() }; }
 	};
 
-	static span_wrapper<T> forward( storage_type &value ) noexcept
+	static span_wrapper<T> map( storage_type &value ) noexcept
 	  requires !std::is_same_v<typename type_mapper<T>::storage_type, T>
 	{
 		span_wrapper<T> out;
 		out.vec.reserve( value.size() );
 
 		for ( auto &v : value )
-			out.vec.push_back( type_mapper<T>::forward( v ) );
+			out.vec.push_back( type_mapper<T>::map( v ) );
 
 		return out;
 	}
@@ -153,11 +152,12 @@ size_t to_chars( tag<std::vector<T, A>>, std::span<char> buff, const std::vector
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <detail::is_map_like M> struct type_mapper<M>
+template <detail::is_map_like M>
+struct type_mapper<M>
 {
 	using inner_type = typename M::value_type;
 	using storage_type = std::remove_cvref_t<M>;
-	static storage_type &forward( storage_type &value ) noexcept { return value; }
+	static storage_type &map( storage_type &value ) noexcept { return value; }
 };
 
 template <typename K, typename T, typename P, typename A>
@@ -166,7 +166,8 @@ constexpr std::string_view type_name( tag<std::map<K, T, P, A>> ) noexcept
 	return "map";
 }
 
-template <detail::is_map_like M> std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
+template <detail::is_map_like M>
+std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
 {
 	M out;
 
@@ -196,7 +197,8 @@ template <detail::is_map_like M> std::optional<M> from_string( tag<M>, std::stri
 	return out;
 }
 
-template <detail::is_map_like M> size_t to_chars( tag<M>, std::span<char> buff, const M &value ) noexcept
+template <detail::is_map_like M>
+size_t to_chars( tag<M>, std::span<char> buff, const M &value ) noexcept
 {
 	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator
 		return 0;

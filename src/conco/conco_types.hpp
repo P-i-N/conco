@@ -9,7 +9,8 @@
 
 namespace conco::detail {
 
-template <typename T> size_t to_chars_append( std::span<char> &buff, const T &value, bool leading_space ) noexcept
+template <typename T>
+size_t to_chars_append( std::span<char> &buff, const T &value, bool leading_space ) noexcept
 {
 	if ( leading_space )
 	{
@@ -37,7 +38,8 @@ concept is_struct_bindable = std::is_array_v<std::remove_cvref_t<T>> || is_tuple
 
 struct any
 {
-	template <typename T> operator T() const;
+	template <typename T>
+	operator T() const;
 };
 
 template <typename T, std::size_t N>
@@ -46,14 +48,16 @@ concept has_n_members = []<std::size_t... Is>( std::index_sequence<Is...> ) {
 	return requires { std::remove_cvref_t<T>{ ( void( Is ), any{} )... }; };
 }( std::make_index_sequence<N>{} );
 
-template <typename T, std::size_t N> struct has_n_members_t : std::bool_constant<has_n_members<T, N>>
+template <typename T, std::size_t N>
+struct has_n_members_t : std::bool_constant<has_n_members<T, N>>
 {};
 
 template <typename... Args, std::size_t N>
 struct has_n_members_t<std::tuple<Args...>, N> : std::bool_constant<sizeof...( Args ) == N>
 {};
 
-template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
+template <typename T, std::size_t N>
+constexpr bool has_n_members_v = has_n_members_t<T, N>::value;
 
 } // namespace conco::detail
 
@@ -61,10 +65,7 @@ template <typename T, std::size_t N> constexpr bool has_n_members_v = has_n_memb
 
 namespace conco {
 
-constexpr std::string_view type_name( tag<bool> ) noexcept
-{
-	return "bool";
-}
+constexpr std::string_view type_name( tag<bool> ) noexcept { return "bool"; }
 
 std::optional<bool> from_string( tag<bool>, std::string_view str ) noexcept
 {
@@ -168,15 +169,9 @@ size_t to_chars( tag<T>, std::span<char> buff, T value ) noexcept
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-constexpr std::string_view type_name( tag<std::string_view> ) noexcept
-{
-	return "string";
-}
+constexpr std::string_view type_name( tag<std::string_view> ) noexcept { return "string"; }
 
-std::optional<std::string_view> from_string( tag<std::string_view>, std::string_view str ) noexcept
-{
-	return str;
-}
+std::optional<std::string_view> from_string( tag<std::string_view>, std::string_view str ) noexcept { return str; }
 
 size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view value ) noexcept
 {
@@ -213,10 +208,7 @@ size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view v
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-constexpr std::string_view type_name( tag<const char *> ) noexcept
-{
-	return "string";
-}
+constexpr std::string_view type_name( tag<const char *> ) noexcept { return "string"; }
 
 // Note: There is no `from_string`, because we cannot return a null-terminated string from
 // a source std::string_view token without allocating memory for it. If you want to use
@@ -230,12 +222,14 @@ size_t to_chars( tag<const char *>, std::span<char> buff, const char *value ) no
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T, size_t N> constexpr std::string_view type_name( tag<std::array<T, N>> ) noexcept
+template <typename T, size_t N>
+constexpr std::string_view type_name( tag<std::array<T, N>> ) noexcept
 {
 	return "array";
 }
 
-template <typename T, size_t N> constexpr std::string_view type_name( tag<std::span<T, N>> ) noexcept
+template <typename T, size_t N>
+constexpr std::string_view type_name( tag<std::span<T, N>> ) noexcept
 {
 	return "span";
 }
@@ -261,7 +255,8 @@ std::optional<std::array<T, N>> from_string( tag<std::array<T, N>>, std::string_
 	return out;
 }
 
-template <typename T> size_t to_chars( tag<std::span<T>>, std::span<char> buff, std::span<T> value ) noexcept
+template <typename T>
+size_t to_chars( tag<std::span<T>>, std::span<char> buff, std::span<T> value ) noexcept
 {
 	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator
 		return 0;
@@ -291,26 +286,28 @@ size_t to_chars( tag<std::array<T, N>>, std::span<char> buff, const std::array<T
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T> constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
+template <typename T>
+constexpr std::string_view type_name( tag<std::optional<T>> ) noexcept
 {
 	return "optional";
 }
 
-template <typename T> struct type_mapper<std::optional<T>>
+template <typename T>
+struct type_mapper<std::optional<T>>
 {
 	using inner_type = T;
 	using storage_type = std::optional<typename type_mapper<T>::storage_type>;
 
-	static std::optional<T> &forward( storage_type &value ) noexcept
+	static std::optional<T> &map( storage_type &value ) noexcept
 	  requires std::is_same_v<typename type_mapper<T>::storage_type, T>
 	{
 		return value;
 	}
 
-	static std::optional<T> forward( storage_type &value ) noexcept
+	static std::optional<T> map( storage_type &value ) noexcept
 	  requires( !std::is_same_v<typename type_mapper<T>::storage_type, T> )
 	{
-		return value ? std::optional<T>( type_mapper<T>::forward( *value ) ) : std::nullopt;
+		return value ? std::optional<T>( type_mapper<T>::map( *value ) ) : std::nullopt;
 	}
 };
 
@@ -356,22 +353,17 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	T obj{};
 	conco::tokenizer tok{ str };
 
-	bool still_valid = true;
-	auto parse_member = [&]( auto &member ) {
-		if ( !still_valid )
-			return;
-
-		if ( token arg = tok.next(); arg )
-		{
-			if ( auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( member )>>{}, *arg ); parsed_opt )
-			{
-				member = *parsed_opt;
-				return;
-			}
-		}
-
-		still_valid = false;
-	};
+#define PARSE_MEMBER( _M ) \
+	do \
+	{ \
+		auto arg = tok.next(); \
+		if ( !arg ) \
+			return std::nullopt; \
+		auto parsed_opt = from_string( tag<decltype( _M )>{}, *arg ); \
+		if ( !parsed_opt ) \
+			return std::nullopt; \
+		_M = *parsed_opt; \
+	} while ( false )
 
 	if constexpr ( detail::has_n_members_v<T, 9> )
 	{
@@ -380,58 +372,77 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	else if constexpr ( detail::has_n_members_v<T, 8> )
 	{
 		auto &[m0, m1, m2, m3, m4, m5, m6, m7] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5, m6, m7 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
+		PARSE_MEMBER( m3 );
+		PARSE_MEMBER( m4 );
+		PARSE_MEMBER( m5 );
+		PARSE_MEMBER( m6 );
+		PARSE_MEMBER( m7 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 7> )
 	{
 		auto &[m0, m1, m2, m3, m4, m5, m6] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5, m6 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
+		PARSE_MEMBER( m3 );
+		PARSE_MEMBER( m4 );
+		PARSE_MEMBER( m5 );
+		PARSE_MEMBER( m6 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 6> )
 	{
 		auto &[m0, m1, m2, m3, m4, m5] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
+		PARSE_MEMBER( m3 );
+		PARSE_MEMBER( m4 );
+		PARSE_MEMBER( m5 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 5> )
 	{
 		auto &[m0, m1, m2, m3, m4] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
+		PARSE_MEMBER( m3 );
+		PARSE_MEMBER( m4 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 4> )
 	{
 		auto &[m0, m1, m2, m3] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2, m3 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
+		PARSE_MEMBER( m3 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 3> )
 	{
 		auto &[m0, m1, m2] = obj;
-		auto ms_tuple = std::tie( m0, m1, m2 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
+		PARSE_MEMBER( m2 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 2> )
 	{
 		auto &[m0, m1] = obj;
-		auto ms_tuple = std::tie( m0, m1 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 1> )
 	{
 		auto &[m0] = obj;
-		auto ms_tuple = std::tie( m0 );
-		std::apply( [&]( auto &...ms ) { ( parse_member( ms ), ... ); }, ms_tuple );
+		PARSE_MEMBER( m0 );
 	}
 	else
 	{
 		static_assert( false, "Class type has no members!" );
 	}
 
-	if ( !still_valid )
-		return std::nullopt;
+#undef PARSE_MEMBER
 
 	return obj;
 }
@@ -445,6 +456,14 @@ size_t to_chars( tag<T>, std::span<char> buff, const T &value ) noexcept
 
 	auto b = buff;
 
+#define TO_CHARS_MEMBER( _M ) \
+	do \
+	{ \
+		size_t len = detail::to_chars_append( b, _M, true ); \
+		if ( len == 0 ) \
+			return 0; \
+	} while ( false )
+
 	if constexpr ( detail::has_n_members_v<T, 9> )
 	{
 		static_assert( false, "Too many members in this class type!" );
@@ -452,55 +471,77 @@ size_t to_chars( tag<T>, std::span<char> buff, const T &value ) noexcept
 	else if constexpr ( detail::has_n_members_v<T, 8> )
 	{
 		const auto &[m0, m1, m2, m3, m4, m5, m6, m7] = value;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5, m6, m7 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
+		TO_CHARS_MEMBER( m3 );
+		TO_CHARS_MEMBER( m4 );
+		TO_CHARS_MEMBER( m5 );
+		TO_CHARS_MEMBER( m6 );
+		TO_CHARS_MEMBER( m7 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 7> )
 	{
 		const auto &[m0, m1, m2, m3, m4, m5, m6] = value;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5, m6 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
+		TO_CHARS_MEMBER( m3 );
+		TO_CHARS_MEMBER( m4 );
+		TO_CHARS_MEMBER( m5 );
+		TO_CHARS_MEMBER( m6 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 6> )
 	{
 		const auto &[m0, m1, m2, m3, m4, m5] = value;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4, m5 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
+		TO_CHARS_MEMBER( m3 );
+		TO_CHARS_MEMBER( m4 );
+		TO_CHARS_MEMBER( m5 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 5> )
 	{
 		const auto &[m0, m1, m2, m3, m4] = value;
-		auto ms_tuple = std::tie( m0, m1, m2, m3, m4 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
+		TO_CHARS_MEMBER( m3 );
+		TO_CHARS_MEMBER( m4 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 4> )
 	{
 		const auto &[m0, m1, m2, m3] = value;
-		auto ms_tuple = std::tie( m0, m1, m2, m3 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
+		TO_CHARS_MEMBER( m3 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 3> )
 	{
 		const auto &[m0, m1, m2] = value;
-		auto ms_tuple = std::tie( m0, m1, m2 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
+		TO_CHARS_MEMBER( m2 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 2> )
 	{
 		const auto &[m0, m1] = value;
-		auto ms_tuple = std::tie( m0, m1 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
+		TO_CHARS_MEMBER( m1 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 1> )
 	{
 		const auto &[m0] = value;
-		auto ms_tuple = std::tie( m0 );
-		std::apply( [&]( const auto &...ms ) { ( detail::to_chars_append( b, ms, true ), ... ); }, ms_tuple );
+		TO_CHARS_MEMBER( m0 );
 	}
 	else
 	{
 		static_assert( false, "Class type has no members!" );
 	}
+
+#undef TO_CHARS_MEMBER
 
 	if ( b.size() < 2 ) // Not enough space for closing '}' and null-terminator
 		return 0;
