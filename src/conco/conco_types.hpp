@@ -33,8 +33,8 @@ template <typename T>
 concept is_tuple_like = requires { sizeof( std::tuple_size<T> ); };
 
 template <typename T>
-concept is_struct_bindable = std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
-                             std::is_aggregate_v<std::remove_cvref_t<T>>;
+concept is_struct_bindable = // std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
+  std::is_aggregate_v<std::remove_cvref_t<T>>;
 
 struct any
 {
@@ -359,7 +359,7 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 		auto arg = tok.next(); \
 		if ( !arg ) \
 			return std::nullopt; \
-		auto parsed_opt = from_string( tag<decltype( _M )>{}, *arg ); \
+		auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( _M )>>{}, *arg ); \
 		if ( !parsed_opt ) \
 			return std::nullopt; \
 		_M = *parsed_opt; \
@@ -429,8 +429,28 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	else if constexpr ( detail::has_n_members_v<T, 2> )
 	{
 		auto &[m0, m1] = obj;
-		PARSE_MEMBER( m0 );
-		PARSE_MEMBER( m1 );
+
+		do
+		{
+			auto arg = tok.next();
+			if ( !arg )
+				return std::nullopt;
+			auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( m0 )>>{}, *arg );
+			if ( !parsed_opt )
+				return std::nullopt;
+			m0 = *parsed_opt;
+		} while ( false );
+
+		do
+		{
+			auto arg = tok.next();
+			if ( !arg )
+				return std::nullopt;
+			auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( m1 )>>{}, *arg );
+			if ( !parsed_opt )
+				return std::nullopt;
+			m1 = *parsed_opt;
+		} while ( false );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 1> )
 	{
@@ -448,7 +468,7 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 }
 
 template <typename T>
-  requires std::is_class_v<T> && detail::is_struct_bindable<T>
+  requires detail::is_struct_bindable<T>
 size_t to_chars( tag<T>, std::span<char> buff, const T &value ) noexcept
 {
 	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator

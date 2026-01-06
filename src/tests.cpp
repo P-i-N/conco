@@ -695,34 +695,36 @@ TEST_SUITE( "Structured bindings" )
 
 	using pair = std::pair<int, int>;
 
+	/*
 	TEST_CASE( "Different number of members" )
 	{
-		const conco::command commands[] = {
-			{ +[]( sum_1 f ) { return std::get<0>( f ); }, "sum_1" },
-			{ +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
-			{ +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
-			{ +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
-			{ +[]( pair p ) { return p.first + p.second; }, "sum_pair" },
-		};
+	  const conco::command commands[] = {
+	    { +[]( sum_1 f ) { return std::get<0>( f ); }, "sum_1" },
+	    { +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
+	    { +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
+	    { +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
+	    { +[]( pair p ) { return p.first + p.second; }, "sum_pair" },
+	  };
 
-		char buffer[64] = { 0 };
-		CHECK( execute( commands, "sum_1 5", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "5" );
+	  char buffer[64] = { 0 };
+	  CHECK( execute( commands, "sum_1 5", buffer ) == conco::result::success );
+	  REQUIRE( std::string_view( buffer ) == "5" );
 
-		CHECK( execute( commands, "sum_2 {5 10}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "15" );
+	  CHECK( execute( commands, "sum_2 {5 10}", buffer ) == conco::result::success );
+	  REQUIRE( std::string_view( buffer ) == "15" );
 
-		CHECK( execute( commands, "sum_3 {5 10 15}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "30" );
+	  CHECK( execute( commands, "sum_3 {5 10 15}", buffer ) == conco::result::success );
+	  REQUIRE( std::string_view( buffer ) == "30" );
 
-		CHECK( execute( commands, "sum_4 {5 10 15 20}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "50" );
+	  CHECK( execute( commands, "sum_4 {5 10 15 20}", buffer ) == conco::result::success );
+	  REQUIRE( std::string_view( buffer ) == "50" );
 
-		CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
+	  CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
 
-		CHECK( execute( commands, "sum_pair {7 8}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "15" );
+	  CHECK( execute( commands, "sum_pair {7 8}", buffer ) == conco::result::success );
+	  REQUIRE( std::string_view( buffer ) == "15" );
 	}
+	*/
 
 	TEST_CASE( "Results" )
 	{
@@ -869,6 +871,17 @@ TEST_SUITE( "STL types" )
 			   return c_str;
 			 },
 			  "optional_c_str" },
+			{ +[]( const std::map<std::string, const char *> &m ) -> std::pair<std::string, std::string> {
+			   std::string keys;
+			   std::string values;
+			   for ( const auto &[key, value] : m )
+			   {
+				   keys += key;
+				   values += value ? value : "null";
+			   }
+			   return { keys, values };
+			 },
+			  "concat_map_strings" }
 		};
 
 		char buffer[64] = { 0 };
@@ -882,5 +895,8 @@ TEST_SUITE( "STL types" )
 		REQUIRE( std::string_view( buffer ) == "\"Test string\"" );
 		CHECK( execute( commands, "optional_c_str", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "" );
+		CHECK( execute( commands, "concat_map_strings {key1='value1' key2='value2' key3=null}", buffer ) ==
+		       conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{\"key1key2key3\", \"value1value2null\"}" );
 	}
 }

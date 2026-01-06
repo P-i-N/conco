@@ -171,6 +171,8 @@ std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
 {
 	M out;
 
+	using map_value_type = type_mapper<typename type_mapper<M>::inner_type>::storage_type;
+
 	tokenizer tok = { str };
 	while ( true )
 	{
@@ -186,7 +188,7 @@ std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
 			return std::nullopt;
 
 		auto parsed_key_opt = from_string( tag<typename M::key_type>{}, *key );
-		auto parsed_value_opt = from_string( tag<typename M::mapped_type>{}, *value );
+		auto parsed_value_opt = from_string( tag<map_value_type>{}, *value );
 
 		if ( parsed_key_opt && parsed_value_opt )
 			out.emplace( *parsed_key_opt, *parsed_value_opt );
