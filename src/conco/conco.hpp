@@ -284,22 +284,22 @@ static S parse( tag<T>, context &ctx ) noexcept
 	return S{};
 }
 
-static tokenizer &parse( tag<tokenizer &>, context &ctx ) noexcept { return ctx.args; }
+static tokenizer &parse( tag<tokenizer>, context &ctx ) noexcept { return ctx.args; }
 
 template <>
-struct type_mapper<tokenizer &> : ref_type_mapper<tokenizer &>
+struct type_mapper<tokenizer> : ref_type_mapper<tokenizer &>
 {};
 
-static output &parse( tag<output &>, context &ctx ) noexcept { return ctx.out; }
+static output &parse( tag<output>, context &ctx ) noexcept { return ctx.out; }
 
 template <>
-struct type_mapper<output &> : ref_type_mapper<output &>
+struct type_mapper<output> : ref_type_mapper<output &>
 {};
 
-static const context &parse( tag<const context &>, context &ctx ) noexcept { return ctx; }
+static const context &parse( tag<context>, context &ctx ) noexcept { return ctx; }
 
 template <>
-struct type_mapper<const context &> : ref_type_mapper<const context &>
+struct type_mapper<context> : ref_type_mapper<const context &>
 {};
 
 } // namespace conco
@@ -369,10 +369,10 @@ struct command_traits<RT( Args... )>
 template <typename... Args>
 auto make_args_tuple( context &ctx ) noexcept
 {
-	using result_t = std::tuple<typename type_mapper<Args>::storage_type...>;
+	using result_t = std::tuple<typename type_mapper<std::remove_cvref_t<Args>>::storage_type...>;
 
 	// Using brace initialization to guarantee left-to-right evaluation order or `parse()` calls
-	return result_t{ ( parse( tag<Args>{}, ctx ) )... };
+	return result_t{ ( parse( tag<std::remove_cvref_t<Args>>{}, ctx ) )... };
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification
@@ -421,7 +421,7 @@ struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
 		else
 		{
 			auto callable = [target]( auto &&...args ) -> RT {
-				return target( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+				return target( type_mapper<std::remove_cvref_t<Args>>::map( std::forward<decltype( args )>( args ) )... );
 			};
 			apply<RT>( ctx, callable, args_tuple );
 		}

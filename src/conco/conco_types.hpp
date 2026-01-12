@@ -33,8 +33,8 @@ template <typename T>
 concept is_tuple_like = requires { sizeof( std::tuple_size<T> ); };
 
 template <typename T>
-concept is_struct_bindable = // std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
-  std::is_aggregate_v<std::remove_cvref_t<T>>;
+concept is_struct_bindable = std::is_array_v<std::remove_cvref_t<T>> || is_tuple_like<std::remove_cvref_t<T>> ||
+                             std::is_aggregate_v<std::remove_cvref_t<T>>;
 
 struct any
 {
@@ -429,28 +429,8 @@ std::optional<T> from_string( tag<T>, std::string_view str ) noexcept
 	else if constexpr ( detail::has_n_members_v<T, 2> )
 	{
 		auto &[m0, m1] = obj;
-
-		do
-		{
-			auto arg = tok.next();
-			if ( !arg )
-				return std::nullopt;
-			auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( m0 )>>{}, *arg );
-			if ( !parsed_opt )
-				return std::nullopt;
-			m0 = *parsed_opt;
-		} while ( false );
-
-		do
-		{
-			auto arg = tok.next();
-			if ( !arg )
-				return std::nullopt;
-			auto parsed_opt = from_string( tag<std::remove_cvref_t<decltype( m1 )>>{}, *arg );
-			if ( !parsed_opt )
-				return std::nullopt;
-			m1 = *parsed_opt;
-		} while ( false );
+		PARSE_MEMBER( m0 );
+		PARSE_MEMBER( m1 );
 	}
 	else if constexpr ( detail::has_n_members_v<T, 1> )
 	{

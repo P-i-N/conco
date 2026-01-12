@@ -18,6 +18,12 @@ concept is_map_like = requires {
 	{ M{}.emplace( std::declval<typename M::key_type>(), std::declval<typename M::mapped_type>() ) };
 } && std::is_same_v<typename M::value_type, std::pair<const typename M::key_type, typename M::mapped_type>>;
 
+template <typename T>
+using inner_type = typename type_mapper<std::remove_cvref_t<T>>::inner_type;
+
+template <typename T>
+using storage_type = typename type_mapper<std::remove_cvref_t<T>>::storage_type;
+
 } // namespace conco::detail
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -155,9 +161,28 @@ size_t to_chars( tag<std::vector<T, A>>, std::span<char> buff, const std::vector
 template <detail::is_map_like M>
 struct type_mapper<M>
 {
-	using inner_type = typename M::value_type;
-	using storage_type = std::remove_cvref_t<M>;
-	static storage_type &map( storage_type &value ) noexcept { return value; }
+	using key_type = typename M::key_type;
+	using inner_type = typename M::mapped_type;
+	using stored_inner_type = typename type_mapper<inner_type>::storage_type;
+
+	using storage_type = std::map<key_type, stored_inner_type>;
+
+	static storage_type &map( storage_type &value ) noexcept
+	  requires std::is_same_v<stored_inner_type, inner_type>
+	{
+		return value;
+	}
+
+	static M map( storage_type &value ) noexcept
+	  requires !std::is_same_v<stored_inner_type, inner_type>
+	{
+		M out;
+
+		for ( auto &[k, v] : value )
+			out.emplace( k, type_mapper<inner_type>::map( v ) );
+
+		return out;
+	}
 };
 
 template <typename K, typename T, typename P, typename A>
@@ -167,11 +192,11 @@ constexpr std::string_view type_name( tag<std::map<K, T, P, A>> ) noexcept
 }
 
 template <detail::is_map_like M>
-std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
+std::optional<detail::storage_type<M>> from_string( tag<M>, std::string_view str ) noexcept
 {
-	M out;
+	detail::storage_type<M> out;
 
-	using map_value_type = type_mapper<typename type_mapper<M>::inner_type>::storage_type;
+	using map_inner_type = type_mapper<detail::inner_type<M>>::storage_type;
 
 	tokenizer tok = { str };
 	while ( true )
@@ -188,7 +213,7 @@ std::optional<M> from_string( tag<M>, std::string_view str ) noexcept
 			return std::nullopt;
 
 		auto parsed_key_opt = from_string( tag<typename M::key_type>{}, *key );
-		auto parsed_value_opt = from_string( tag<map_value_type>{}, *value );
+		auto parsed_value_opt = from_string( tag<map_inner_type>{}, *value );
 
 		if ( parsed_key_opt && parsed_value_opt )
 			out.emplace( *parsed_key_opt, *parsed_value_opt );
