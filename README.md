@@ -311,3 +311,4 @@ Since the whole library is zero-copy and does not allocate memory, tokens are re
 
 * The tokenizer is *REALLY* simple. Some of the rules above may not behave as you expect in some edge cases. For example:
   - `abc"de"f` will be tokenized as a single token `abc"de"f`
+* No support for custom allocators.

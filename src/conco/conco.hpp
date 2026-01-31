@@ -231,14 +231,6 @@ struct type_mapper<void>
 	using inner_type = void;
 };
 
-template <typename T>
-struct ref_type_mapper
-{
-	using inner_type = void;
-	using storage_type = T &;
-	static T &map( storage_type &value ) noexcept { return static_cast<T &>( value ); }
-};
-
 /**
  * Provides a human-friendly name for a specified type.
  * This is used to fill `type_info` structures at compile-time.
@@ -283,24 +275,6 @@ static S parse( tag<T>, context &ctx ) noexcept
 
 	return S{};
 }
-
-static tokenizer &parse( tag<tokenizer>, context &ctx ) noexcept { return ctx.args; }
-
-template <>
-struct type_mapper<tokenizer> : ref_type_mapper<tokenizer &>
-{};
-
-static output &parse( tag<output>, context &ctx ) noexcept { return ctx.out; }
-
-template <>
-struct type_mapper<output> : ref_type_mapper<output &>
-{};
-
-static const context &parse( tag<context>, context &ctx ) noexcept { return ctx; }
-
-template <>
-struct type_mapper<context> : ref_type_mapper<const context &>
-{};
 
 } // namespace conco
 
@@ -359,6 +333,9 @@ struct command_traits<RT( Args... )>
 	static constexpr const type_info *const result_type_info = type_info::get<RT>();
 };
 
+template <typename... Args>
+using storage_tuple_t = std::tuple<typename type_mapper<std::remove_cvref_t<Args>>::storage_type...>;
+
 /**
  * Creates a tuple of parsed arguments for the given command function/method.
  *
@@ -367,17 +344,28 @@ struct command_traits<RT( Args... )>
  * command context.
  */
 template <typename... Args>
-auto make_args_tuple( context &ctx ) noexcept
+storage_tuple_t<Args...> make_storage_tuple( context &ctx ) noexcept
 {
-	using result_t = std::tuple<typename type_mapper<std::remove_cvref_t<Args>>::storage_type...>;
-
 	// Using brace initialization to guarantee left-to-right evaluation order or `parse()` calls
-	return result_t{ ( parse( tag<std::remove_cvref_t<Args>>{}, ctx ) )... };
+	return { ( parse( tag<std::remove_cvref_t<Args>>{}, ctx ) )... };
+}
+
+// Tuple of types that are returned by `type_mapper<>::map()` for each argument
+template <typename... Args>
+using args_tuple_t = std::tuple<decltype( type_mapper<std::remove_cvref_t<Args>>::map(
+  std::declval<typename type_mapper<std::remove_cvref_t<Args>>::storage_type &>() ) )...>;
+
+template <typename... Args>
+args_tuple_t<Args...> make_args_tuple( context &ctx, storage_tuple_t<Args...> &stor ) noexcept
+{
+	return [&]<std::size_t... I>( std::index_sequence<I...> ) {
+		return args_tuple_t<Args...>{ type_mapper<std::remove_cvref_t<Args>>::map( std::get<I>( stor ) )... };
+	}( std::make_index_sequence<sizeof...( Args )>{} );
 }
 
 // Applies given tuple of arguments to the callable (function/method) and handles result stringification
 template <typename RT>
-static void apply( context &ctx, auto &callable, auto &args_tuple )
+static void apply( context &ctx, auto &callable, auto &&args_tuple )
 {
 	ctx.out.result_error = false;
 
@@ -405,7 +393,11 @@ struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
 
 	static bool call( context &ctx )
 	{
-		auto args_tuple = make_args_tuple<Args...>( ctx );
+		auto storage_tuple = make_storage_tuple<Args...>( ctx );
+		if ( ctx.out.has_error() )
+			return false;
+
+		auto args_tuple = make_args_tuple<Args...>( ctx, storage_tuple );
 		if ( ctx.out.has_error() )
 			return false;
 
@@ -413,17 +405,13 @@ struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
 
 		if constexpr ( std::is_void_v<RT> )
 		{
-			auto callable = [target]( auto &&...args ) {
-				target( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
-			};
-			apply<RT>( ctx, callable, args_tuple );
+			auto callable = [target]( auto &&...args ) { target( std::forward<decltype( args )>( args )... ); };
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 		else
 		{
-			auto callable = [target]( auto &&...args ) -> RT {
-				return target( type_mapper<std::remove_cvref_t<Args>>::map( std::forward<decltype( args )>( args ) )... );
-			};
-			apply<RT>( ctx, callable, args_tuple );
+			auto callable = [target]( auto &&...args ) -> RT { return target( std::forward<decltype( args )>( args )... ); };
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 
 		return true;
@@ -440,7 +428,11 @@ struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
 
 	static bool call( context &ctx )
 	{
-		auto args_tuple = make_args_tuple<Args...>( ctx );
+		auto storage_tuple = make_storage_tuple<Args...>( ctx );
+		if ( ctx.out.has_error() )
+			return false;
+
+		auto args_tuple = make_args_tuple<Args...>( ctx, storage_tuple );
 		if ( ctx.out.has_error() )
 			return false;
 
@@ -448,17 +440,15 @@ struct callable_invoker_impl<C, RT( Args... )> : command_traits<RT( Args... )>
 
 		if constexpr ( std::is_void_v<RT> )
 		{
-			auto callable = [target]( auto &&...args ) {
-				( *target )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
-			};
-			apply<RT>( ctx, callable, args_tuple );
+			auto callable = [target]( auto &&...args ) { ( *target )( std::forward<decltype( args )>( args )... ); };
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 		else
 		{
 			auto callable = [target]( auto &&...args ) -> RT {
-				return ( *target )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+				return ( *target )( std::forward<decltype( args )>( args )... );
 			};
-			apply<RT>( ctx, callable, args_tuple );
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 
 		return true;
@@ -479,7 +469,11 @@ struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
 
 	static bool call( context &ctx )
 	{
-		auto args_tuple = make_args_tuple<Args...>( ctx );
+		auto storage_tuple = make_storage_tuple<Args...>( ctx );
+		if ( ctx.out.has_error() )
+			return false;
+
+		auto args_tuple = make_args_tuple<Args...>( ctx, storage_tuple );
 		if ( ctx.out.has_error() )
 			return false;
 
@@ -487,17 +481,15 @@ struct method_invoker_impl<C, M, RT( Args... )> : command_traits<RT( Args... )>
 
 		if constexpr ( std::is_void_v<RT> )
 		{
-			auto callable = [target]( auto &&...args ) {
-				( target->*M )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
-			};
-			apply<RT>( ctx, callable, args_tuple );
+			auto callable = [target]( auto &&...args ) { ( target->*M )( std::forward<decltype( args )>( args )... ); };
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 		else
 		{
 			auto callable = [target]( auto &&...args ) -> RT {
-				return ( target->*M )( type_mapper<Args>::map( std::forward<decltype( args )>( args ) )... );
+				return ( target->*M )( std::forward<decltype( args )>( args )... );
 			};
-			apply<RT>( ctx, callable, args_tuple );
+			apply<RT>( ctx, callable, std::move( args_tuple ) );
 		}
 
 		return true;
@@ -512,11 +504,35 @@ struct method_invoker : method_invoker_impl<C, M, typename signature_helper<decl
 	               "Non-const method invoker instantiated for const instance!" );
 };
 
+template <typename T>
+struct ref_type_mapper
+{
+	using inner_type = void;
+	using storage_type = T &;
+	static T &map( storage_type &value ) noexcept { return static_cast<T &>( value ); }
+};
+
 } // namespace conco::detail
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace conco {
+
+static tokenizer &parse( tag<tokenizer>, context &ctx ) noexcept { return ctx.args; }
+static output &parse( tag<output>, context &ctx ) noexcept { return ctx.out; }
+static const context &parse( tag<context>, context &ctx ) noexcept { return ctx; }
+
+template <>
+struct type_mapper<tokenizer> : detail::ref_type_mapper<tokenizer &>
+{};
+
+template <>
+struct type_mapper<output> : detail::ref_type_mapper<output &>
+{};
+
+template <>
+struct type_mapper<context> : detail::ref_type_mapper<const context &>
+{};
 
 template <typename F>
   requires std::is_function_v<std::remove_pointer_t<F>>
@@ -585,4 +601,4 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 
 } // namespace conco
 
-#include "conco_types.hpp"
+#include "conco_basic_types.hpp"

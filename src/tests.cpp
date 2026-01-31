@@ -695,36 +695,34 @@ TEST_SUITE( "Structured bindings" )
 
 	using pair = std::pair<int, int>;
 
-	/*
 	TEST_CASE( "Different number of members" )
 	{
-	  const conco::command commands[] = {
-	    { +[]( sum_1 f ) { return std::get<0>( f ); }, "sum_1" },
-	    { +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
-	    { +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
-	    { +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
-	    { +[]( pair p ) { return p.first + p.second; }, "sum_pair" },
-	  };
+		const conco::command commands[] = {
+			{ +[]( sum_1 f ) { return std::get<0>( f ); }, "sum_1" },
+			{ +[]( sum_2 f ) { return std::get<0>( f ) + std::get<1>( f ); }, "sum_2" },
+			{ +[]( sum_3 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ); }, "sum_3" },
+			{ +[]( sum_4 f ) { return std::get<0>( f ) + std::get<1>( f ) + std::get<2>( f ) + std::get<3>( f ); }, "sum_4" },
+			{ +[]( pair p ) { return p.first + p.second; }, "sum_pair" },
+		};
 
-	  char buffer[64] = { 0 };
-	  CHECK( execute( commands, "sum_1 5", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "5" );
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "sum_1 5", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "5" );
 
-	  CHECK( execute( commands, "sum_2 {5 10}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "15" );
+		CHECK( execute( commands, "sum_2 {5 10}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
 
-	  CHECK( execute( commands, "sum_3 {5 10 15}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "30" );
+		CHECK( execute( commands, "sum_3 {5 10 15}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "30" );
 
-	  CHECK( execute( commands, "sum_4 {5 10 15 20}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "50" );
+		CHECK( execute( commands, "sum_4 {5 10 15 20}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "50" );
 
-	  CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
+		CHECK( execute( commands, "sum_4 {5 10 15}", buffer ) == conco::result::argument_parsing_error );
 
-	  CHECK( execute( commands, "sum_pair {7 8}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "15" );
+		CHECK( execute( commands, "sum_pair {7 8}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "15" );
 	}
-	*/
 
 	TEST_CASE( "Results" )
 	{
@@ -793,60 +791,58 @@ TEST_SUITE( "STL types" )
 		REQUIRE( std::string_view( buffer ) == "{10 20 30 40}" );
 	}
 
-	/*
 	TEST_CASE( "std::map" )
 	{
-	  const conco::command commands[] = {
-	    { +[]( const std::map<std::string, int> &m ) -> std::pair<std::string, int> {
-	       std::pair<std::string, int> result = {};
-	       for ( const auto &[key, value] : m )
-	       {
-	         result.first += key;
-	         result.second += value;
-	       }
+		const conco::command commands[] = {
+			{ +[]( const std::map<std::string, int> &m ) -> std::pair<std::string, int> {
+			   std::pair<std::string, int> result = {};
+			   for ( const auto &[key, value] : m )
+			   {
+				   result.first += key;
+				   result.second += value;
+			   }
 
-	       return result;
-	     },
-	      "sum_map m;Sum all keys and values in the map" },
-	    { +[]( conco::tokenizer &args ) -> std::map<std::string, int> {
-	       std::map<std::string, int> m;
+			   return result;
+			 },
+			  "sum_map m;Sum all keys and values in the map" },
+			{ +[]( conco::tokenizer &args ) -> std::map<std::string, int> {
+			   std::map<std::string, int> m;
 
-	       while ( true )
-	       {
-	         auto key = args.next();
-	         if ( !key )
-	           break;
+			   while ( true )
+			   {
+				   auto key = args.next();
+				   if ( !key )
+					   break;
 
-	         if ( !args.consume_char_if( '=' ) )
-	           break;
+				   if ( !args.consume_char_if( '=' ) )
+					   break;
 
-	         auto value = args.next();
-	         if ( !value )
-	           break;
+				   auto value = args.next();
+				   if ( !value )
+					   break;
 
-	         auto parsed_key_opt = conco::from_string( conco::tag<std::string>{}, *key );
-	         auto parsed_value_opt = conco::from_string( conco::tag<int>{}, *value );
+				   auto parsed_key_opt = conco::from_string( conco::tag<std::string>{}, *key );
+				   auto parsed_value_opt = conco::from_string( conco::tag<int>{}, *value );
 
-	         if ( parsed_key_opt && parsed_value_opt )
-	           m.emplace( *parsed_key_opt, *parsed_value_opt );
-	         else
-	           break;
-	       }
+				   if ( parsed_key_opt && parsed_value_opt )
+					   m.emplace( *parsed_key_opt, *parsed_value_opt );
+				   else
+					   break;
+			   }
 
-	       return m;
-	     },
-	      "make_map;Create a map from key=value pairs" },
-	  };
+			   return m;
+			 },
+			  "make_map;Create a map from key=value pairs" },
+		};
 
-	  char buffer[64] = { 0 };
-	  CHECK( execute( commands, "sum_map {a=10 b=20 c=30}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "{\"abc\" 60}" );
-	  CHECK( execute( commands, "sum_map {}", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "{\"\" 0}" );
-	  CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
-	  REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 \"key1\"=100 \"key2\"=200 \"key3\"=300}" );
+		char buffer[64] = { 0 };
+		CHECK( execute( commands, "sum_map {a=10 b=20 c=30}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{\"abc\" 60}" );
+		CHECK( execute( commands, "sum_map {}", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{\"\" 0}" );
+		CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 \"key1\"=100 \"key2\"=200 \"key3\"=300}" );
 	}
-	*/
 
 	TEST_CASE( "Background conversions" )
 	{
