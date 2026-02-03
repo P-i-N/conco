@@ -123,7 +123,7 @@ struct context final
 		token default_value = std::nullopt;
 		if ( default_args.next() ) // Consume optional argument name
 		{
-			if ( default_args.consume_char_if( '=' ) )
+			if ( default_args.try_consume_assignment() )
 				default_value = default_args.next();
 		}
 

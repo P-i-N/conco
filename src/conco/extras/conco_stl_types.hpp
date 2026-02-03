@@ -136,22 +136,22 @@ std::optional<std::vector<T, A>> from_string( tag<std::vector<T, A>>, std::strin
 template <typename T, typename A>
 size_t to_chars( tag<std::vector<T, A>>, std::span<char> buff, const std::vector<T, A> &value ) noexcept
 {
-	if ( buff.size() < 3 ) // We need at least 2 chars for '{}' and 1 for null-terminator
+	if ( buff.size() < 3 ) // We need at least 2 chars for '[]' and 1 for null-terminator
 		return 0;
 
 	auto b = buff;
 	for ( const auto &v : value )
 	{
-		size_t len = detail::to_chars_append( b, v, true );
+		size_t len = detail::to_chars_append( b, v, ',' );
 		if ( len == 0 )
 			return 0;
 	}
 
-	if ( b.size() < 2 ) // Not enough space for closing '}' and null-terminator
+	if ( b.size() < 2 ) // Not enough space for closing ']' and null-terminator
 		return 0;
 
-	buff[0] = '{'; // Replace leading ' ' with '{'
-	b[0] = '}';
+	buff[0] = '['; // Replace leading ' ' with '['
+	b[0] = ']';
 	b[1] = '\0';
 	return b.data() - buff.data() + 2;
 }
@@ -205,7 +205,7 @@ std::optional<detail::storage_type<M>> from_string( tag<M>, std::string_view str
 		if ( !key )
 			break;
 
-		if ( !tok.consume_char_if( '=' ) )
+		if ( !tok.try_consume_assignment() )
 			return std::nullopt;
 
 		auto value = tok.next();
@@ -233,17 +233,17 @@ size_t to_chars( tag<M>, std::span<char> buff, const M &value ) noexcept
 	auto b = buff;
 	for ( const auto &[key, val] : value )
 	{
-		size_t len = detail::to_chars_append( b, key, true );
+		size_t len = detail::to_chars_append( b, key, ',' );
 		if ( len == 0 )
 			return 0;
 
 		if ( b.size() < 2 ) // Need at least '=' and something for value
 			return 0;
 
-		b[0] = '=';
+		b[0] = ':';
 		b = b.subspan( 1 );
 
-		len = detail::to_chars_append( b, val, false );
+		len = detail::to_chars_append( b, val, '\0' );
 		if ( len == 0 )
 			return 0;
 	}

@@ -10,21 +10,24 @@ using token = std::optional<std::string_view>;
 /**
  * Very simple tokenizer that splits a string into a substrings (tokens) based on whitespace, commas
  * or semicolons. Single and double quotes are supported to allow longer tokens with spaces.
- * Enclosing and nesting tokens between brackets {} is also supported.
+ * Enclosing and nesting tokens between brackets {} or [] is also supported.
  *
  * Examples:
- *   "a b, c;d,e f"      -> "a", "b", "c", "d", "e", "f"
+ *   "a b, c d,e f"      -> "a", "b", "c", "d", "e", "f"
  *   "'a b c d e f'"     -> "a b c d e f"
- *   "a 'b c';d"         -> "a", "b c", "d"
+ *   "a 'b c';d"         -> "a", "b c" (stops before ';')
  *   "a {b c {d e} f} g" -> "a", "b c {d e} f", "g"
- *   "a {b '{c d}' e} f" -> "a", "b '{c d}' e", "f"
+ *   "a [b '{c d}' e] f" -> "a", "b '{c d}' e", "f"
  *
  * Special characters:
  *   ';' -> indicates end of command, tokenizer will stop processing further input
- *   '=' -> single-character token, returned as-is (used for key-value assignments)
- *   '{' -> starts a block token, ends at matching '}'
- *   '"' or ''' -> starts a quoted string token, ends at matching quote
  *   '\' -> backslash escape - next character is treated literally
+ *   '"' or ''' -> starts a quoted string token, ends at matching quote
+ *   '{' or '[' -> starts a block token, ends at matching '}' or ']'
+ *   '=' or ':' -> single-character token, returned as-is (used for key-value assignments)
+ *
+ * It should be possible to parse a simple JSON-like structure using this tokenizer, e.g.:
+ *   { x: 10, y: 20, name: "Point A", tags: ['tag1', 'tag2', 'tag3'] }
  *
  * When the tokenizer is unable to produce a valid token, it returns `std::nullopt`.
  * This can happen because:
@@ -44,7 +47,8 @@ struct tokenizer
 
 	// Characters that terminate identifier token
 	static constexpr auto is_ident_term = []( char ch ) static -> bool {
-		return is_whitespace( ch ) || ch == ';' || ch == '=' || ch == '"' || ch == '\'' || ch == '{' || ch == '}';
+		return is_whitespace( ch ) || ch == ';' || ch == '=' || ch == ':' || ch == '"' || ch == '\'' || ch == '{' ||
+		       ch == '}' || ch == '[' || ch == ']';
 	};
 
 	std::string_view text;
@@ -73,9 +77,9 @@ struct tokenizer
 		text.remove_prefix( i );
 	}
 
-	bool consume_char_if( char ch ) noexcept
+	bool try_consume_assignment() noexcept
 	{
-		if ( next_char_is( ch ) )
+		if ( next_char_is( '=' ) || next_char_is( ':' ) )
 		{
 			text.remove_prefix( 1 );
 			consume_whitespace();
@@ -95,8 +99,12 @@ struct tokenizer
 			case '"':
 			case '\'': return parse_quoted_string();
 
-			case '{': return parse_block();
-			case '=': return extract_token( 1, false );
+			case '{':
+			case '[': return parse_block();
+
+			case '=':
+			case ':': return extract_token( 1, false );
+
 			case ';': return std::nullopt;
 
 			default: break;
@@ -182,7 +190,10 @@ private:
 
 	token parse_block()
 	{
+		size_t curly_depth = text[0] == '{' ? 1 : 0;
+		size_t square_depth = text[0] == '[' ? 1 : 0;
 		size_t depth = 1;
+
 		char prev_ch = '\0';
 		char quote_char = '\0';
 
@@ -205,11 +216,26 @@ private:
 					else if ( ch == ';' )
 						break;
 					else if ( ch == '{' )
-						++depth;
-					else if ( ch == '}' && !( --depth ) )
+						++depth, ++curly_depth;
+					else if ( ch == '[' )
+						++depth, ++square_depth;
+					else if ( ch == '}' )
 					{
-						++i;
-						break;
+						--curly_depth;
+						if ( !( --depth ) )
+						{
+							++i;
+							break;
+						}
+					}
+					else if ( ch == ']' )
+					{
+						--square_depth;
+						if ( !( --depth ) )
+						{
+							++i;
+							break;
+						}
 					}
 				}
 			}
@@ -220,7 +246,7 @@ private:
 			++i;
 		}
 
-		if ( depth > 0 )
+		if ( curly_depth != 0 || square_depth != 0 )
 		{
 			text = {};
 			return std::nullopt;

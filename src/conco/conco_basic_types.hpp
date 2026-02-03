@@ -10,14 +10,14 @@
 namespace conco::detail {
 
 template <typename T>
-size_t to_chars_append( std::span<char> &buff, const T &value, bool leading_space ) noexcept
+size_t to_chars_append( std::span<char> &buff, const T &value, char leading_char ) noexcept
 {
-	if ( leading_space )
+	if ( leading_char )
 	{
-		if ( buff.size() < 2 ) // Need at least space + null-terminator
+		if ( buff.size() < 2 ) // Need at least leading_char + null-terminator
 			return 0;
 
-		buff[0] = ' ';
+		buff[0] = leading_char;
 		buff = buff.subspan( 1 );
 	}
 
@@ -26,7 +26,7 @@ size_t to_chars_append( std::span<char> &buff, const T &value, bool leading_spac
 		return 0;
 
 	buff = buff.subspan( len - 1 );
-	return leading_space ? len : len - 1;
+	return leading_char ? len : len - 1;
 }
 
 template <typename T>
@@ -264,16 +264,16 @@ size_t to_chars( tag<std::span<T>>, std::span<char> buff, std::span<T> value ) n
 	auto b = buff;
 	for ( const auto &v : value )
 	{
-		size_t len = detail::to_chars_append( b, v, true );
+		size_t len = detail::to_chars_append( b, v, ',' );
 		if ( len == 0 )
 			return 0;
 	}
 
-	if ( b.size() < 2 ) // Not enough space for closing '}' and null-terminator
+	if ( b.size() < 2 ) // Not enough space for closing ']' and null-terminator
 		return 0;
 
-	buff[0] = '{'; // Replace leading ' ' with '{'
-	b[0] = '}';
+	buff[0] = '['; // Replace leading ' ' with '['
+	b[0] = ']';
 	b[1] = '\0';
 	return b.data() - buff.data() + 2;
 }
@@ -459,7 +459,7 @@ size_t to_chars( tag<T>, std::span<char> buff, const T &value ) noexcept
 #define TO_CHARS_MEMBER( _M ) \
 	do \
 	{ \
-		size_t len = detail::to_chars_append( b, _M, true ); \
+		size_t len = detail::to_chars_append( b, _M, ',' ); \
 		if ( len == 0 ) \
 			return 0; \
 	} while ( false )

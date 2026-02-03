@@ -84,31 +84,31 @@ TEST_SUITE( "Tokenizer tests" )
 
 	TEST_CASE( "One big nest" )
 	{
-		conco::tokenizer tokenizer{ R"({{nested {brackets {1 {2 {3 {4}}}}} test} inside})" };
+		conco::tokenizer tokenizer{ R"({{nested {brackets {1 [2 {3 [4]}]}} test} inside})" };
 
-		CHECK_NEXT_TOKEN( "{nested {brackets {1 {2 {3 {4}}}}} test} inside" );
+		CHECK_NEXT_TOKEN( "{nested {brackets {1 [2 {3 [4]}]}} test} inside" );
 
 		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
 	TEST_CASE( "Unclosed brackets" )
 	{
-		conco::tokenizer tokenizer{ R"(token1 {token2 {token3} token2_end token4)" };
+		conco::tokenizer tokenizer{ R"(token1 {token2 [token3] token2_end token4)" };
 
 		CHECK_NEXT_TOKEN( "token1" );
 
 		CHECK_NEXT_EMPTY_TOKEN;
 	}
 
-	TEST_CASE( "Equal sign" )
+	TEST_CASE( "Equal & colon signs" )
 	{
-		conco::tokenizer tokenizer( "a=b c =d;e" );
+		conco::tokenizer tokenizer( "a=b c :d;e" );
 
 		CHECK_NEXT_TOKEN( "a" );
 		CHECK_NEXT_TOKEN( "=" );
 		CHECK_NEXT_TOKEN( "b" );
 		CHECK_NEXT_TOKEN( "c" );
-		CHECK_NEXT_TOKEN( "=" );
+		CHECK_NEXT_TOKEN( ":" );
 		CHECK_NEXT_TOKEN( "d" );
 		CHECK_NEXT_EMPTY_TOKEN;
 	}
@@ -241,7 +241,7 @@ TEST_SUITE( "Type conversions" )
 
 		using array_t = std::array<int, 3>;
 		array_t arr = { 1, 2, 3 };
-		CHECK_TO_CHARS( array_t, arr, "{1 2 3}" );
+		CHECK_TO_CHARS( array_t, arr, "[1,2,3]" );
 	}
 }
 
@@ -739,16 +739,16 @@ TEST_SUITE( "Structured bindings" )
 		REQUIRE( std::string_view( buffer ) == "{42}" );
 
 		CHECK( execute( commands, "make_sum_2 10 20", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{10 20}" );
+		REQUIRE( std::string_view( buffer ) == "{10,20}" );
 
 		CHECK( execute( commands, "make_sum_3 1 2 3", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{1 2 3}" );
+		REQUIRE( std::string_view( buffer ) == "{1,2,3}" );
 
 		CHECK( execute( commands, "make_sum_4 4 3 2 1", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{4 3 2 1}" );
+		REQUIRE( std::string_view( buffer ) == "{4,3,2,1}" );
 
 		CHECK( execute( commands, "make_pair 7 8", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{7 8}" );
+		REQUIRE( std::string_view( buffer ) == "{7,8}" );
 	}
 }
 
@@ -788,7 +788,7 @@ TEST_SUITE( "STL types" )
 		REQUIRE( std::string_view( buffer ) == "0" );
 
 		CHECK( execute( commands, "make_vector 10 20 30 40", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{10 20 30 40}" );
+		REQUIRE( std::string_view( buffer ) == "[10,20,30,40]" );
 	}
 
 	TEST_CASE( "std::map" )
@@ -814,7 +814,7 @@ TEST_SUITE( "STL types" )
 				   if ( !key )
 					   break;
 
-				   if ( !args.consume_char_if( '=' ) )
+				   if ( !args.try_consume_assignment() )
 					   break;
 
 				   auto value = args.next();
@@ -837,11 +837,11 @@ TEST_SUITE( "STL types" )
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "sum_map {a=10 b=20 c=30}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{\"abc\" 60}" );
+		REQUIRE( std::string_view( buffer ) == "{\"abc\",60}" );
 		CHECK( execute( commands, "sum_map {}", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{\"\" 0}" );
+		REQUIRE( std::string_view( buffer ) == "{\"\",0}" );
 		CHECK( execute( commands, "make_map key1=100 key2=200 key3=300 'key X'=400", buffer ) == conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{\"key X\"=400 \"key1\"=100 \"key2\"=200 \"key3\"=300}" );
+		REQUIRE( std::string_view( buffer ) == "{\"key X\":400,\"key1\":100,\"key2\":200,\"key3\":300}" );
 	}
 
 	TEST_CASE( "Background conversions" )
@@ -896,6 +896,6 @@ TEST_SUITE( "STL types" )
 		REQUIRE( std::string_view( buffer ) == "" );
 		CHECK( execute( commands, "concat_map_strings {key1='value1' key2='value2' key3=null}", buffer ) ==
 		       conco::result::success );
-		REQUIRE( std::string_view( buffer ) == "{\"key1key2key3\" \"value1value2null\"}" );
+		REQUIRE( std::string_view( buffer ) == "{\"key1key2key3\",\"value1value2null\"}" );
 	}
 }
