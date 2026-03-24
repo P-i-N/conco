@@ -1,4 +1,5 @@
 # `con`sole `co`mmands
+
 C++ **header-only** library for creating simple text-based command interpreters or REPL/Quake-like consoles.
 
 It helps you automatically convert a line of text like this:
@@ -6,6 +7,7 @@ It helps you automatically convert a line of text like this:
 `some_command_name 123 'Hello!' 456`
 
 ... into actual C/C++ function call like this:
+
 ```cpp
 void some_command_name(int a, std::string_view b, int c)
 {
@@ -19,13 +21,13 @@ In another words - `conco` is primarily a command dispatcher, designed to take a
 
 ## Features
 
-* **Header-only**: The library is header-only, so you just need to include `conco.hpp`
-* **Simple**: No dependencies, no memory allocations, no global state.
-* **Automatic argument parsing**: Arguments are automatically tokenized and converted from strings to the types required by the function parameters.
-* **Return value handling**: Captures the return value of the executed function and can stringify it into a user-provided buffer.
-* **Custom types**: User can define specialized conversion functions to enable argument parsing for own types.
-* **Member functions**: Supports binding member functions to commands, allowing using methods of classes/struct as commands.
-* **Default arguments & overloading**: Multiple commands with the same name, but different parameter sets can be defined, as well as default argument values.
+- **Header-only**: The library is header-only, so you just need to include `conco.hpp`
+- **Simple**: No dependencies, no memory allocations, no global state.
+- **Automatic argument parsing**: Arguments are automatically tokenized and converted from strings to the types required by the function parameters.
+- **Return value handling**: Captures the return value of the executed function and can stringify it into a user-provided buffer.
+- **Custom types**: User can define specialized conversion functions to enable argument parsing for own types.
+- **Member functions**: Supports binding member functions to commands, allowing using methods of classes/struct as commands.
+- **Default arguments & overloading**: Multiple commands with the same name, but different parameter sets can be defined, as well as default argument values.
 
 ## Basic Example
 
@@ -78,7 +80,7 @@ int main()
 	// Calls `calc.add(10, 5)`
 	conco::execute(commands, "add 10 5", buffer);
 	std::println("{}", buffer); // Outputs: 15
-	
+
 	// Calls `calc.sub(10, 5)`
 	conco::execute(commands, "sub 10 5", buffer);
 	std::println("{}", buffer); // Outputs: 5
@@ -174,9 +176,10 @@ int main()
 ```
 
 The second way - on case structured bindings are not possible or not desired - is to provide custom conversion functions for the type:
-* `type_name(conco::tag<T>)` - returns human readable name of the type
-* `from_string(conco::tag<T>, std::string_view)` - converts a string token to the custom type
-* `to_chars(conco::tag<T>, std::span<char>, T)` - converts the custom type to a string representation
+
+- `type_name(conco::tag<T>)` - returns human readable name of the type
+- `from_string(conco::tag<T>, std::string_view)` - converts a string token to the custom type
+- `to_chars(conco::tag<T>, std::span<char>, T)` - converts the custom type to a string representation
 
 Providing `type_name` function is mandatory, while `from_string` and `to_chars` are only needed if you want to use the type as a command argument or return value.
 
@@ -272,43 +275,45 @@ int main()
 
 The library provides built-in support for the following basic types:
 
-* `int`, `long`, `long long` and their unsigned variants
-* `float`, `double`
-* `bool` (supports `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`)
-* `std::string_view`
-* `const char *` as a command result
-* `std::span<T>` as a command result for any supported type `T`
-* `std::array<T, N>` for any supported type `T` and size `N`
-* `std::optional<T>` for any supported type `T`
-* `std::tuple<Ts...>` for any supported types `Ts...`
-* `std::pair<T1, T2>` for any supported types `T1`, `T2`
-* Any struct/class that supports structured bindings for its members
+- `int`, `long`, `long long` and their unsigned variants
+- `float`, `double`
+- `bool` (supports `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`)
+- `std::string_view`
+- `const char *` as a command result
+- `std::span<T>` as a command result for any supported type `T`
+- `std::array<T, N>` for any supported type `T` and size `N`
+- `std::optional<T>` for any supported type `T`
+- `std::tuple<Ts...>` for any supported types `Ts...`
+- `std::pair<T1, T2>` for any supported types `T1`, `T2`
+- Any struct/class that supports structured bindings for its members
 
 ## Extended types
 
 Including additional header `conco/extras/conco_stl_types.hpp` adds support for the following STL types as command arguments and return values. Note that these types may require dynamic memory allocations during parsing and serialization! Since the core library is designed to be zero-allocation, these types are provided as optional extensions.
 
-* `std::vector<T>` for any supported type `T`
-* `std::map<K, V>` for any supported key type `K` and value type `V`
-* `std::unordered_map<K, V>` for any supported key type `K` and value type `V`
-* `std::string`
-* `std::span<T>` as command argument for any supported type `T` (`std::vector<T>` is used as temporary storage in the background)
-* `const char *` as command argument (`std::string` is used as temporary storage in the background)
+- `std::vector<T>` for any supported type `T`
+- `std::map<K, V>` for any supported key type `K` and value type `V`
+- `std::unordered_map<K, V>` for any supported key type `K` and value type `V`
+- `std::string`
+- `std::span<T>` as command argument for any supported type `T` (`std::vector<T>` is used as temporary storage in the background)
+- `const char *` as command argument (`std::string` is used as temporary storage in the background)
 
 ## Tokenization rules
 
 The library splits input command lines into tokens using the following rules:
-* Tokens are separated by whitespace (spaces, tabs) or commas
-* Tokens can be enclosed in single (`'`) or double (`"`) quotes to include whitespace or special characters
-* Tokens can be enclosed in curly braces (`{}`) for building complex types (e.g. `{10 20}` for a point) - nesting is supported
-* Backslash (`\`) can be used in front of special characters to escape them (e.g. `\"` for a double quote character inside a double-quoted token)
-* Equal sign (`=`) is a token
-* Semicolon (`;`) is a terminating charater, tokenization stops when it is encountered
+
+- Tokens are separated by whitespace (spaces, tabs) or commas
+- Tokens can be enclosed in single (`'`) or double (`"`) quotes to include whitespace or special characters
+- Tokens can be enclosed in curly braces (`{}`) for building complex types (e.g. `{10 20}` for a point) - nesting is supported
+- Backslash (`\`) can be used in front of special characters to escape them (e.g. `\"` for a double quote character inside a double-quoted token)
+- Equal sign (`=`) is a token
+- Semicolon (`;`) is a terminating charater, tokenization stops when it is encountered
 
 Since the whole library is zero-copy and does not allocate memory, tokens are represented as `std::string_view` slices of the original input string. This means that escaped characters are not really unescaped in the tokens and user code must handle that if needed.
 
 ## Gotchas & limitations
 
-* The tokenizer is *REALLY* simple. Some of the rules above may not behave as you expect in some edge cases. For example:
+- The tokenizer is _REALLY_ simple. Some of the rules above may not behave as you expect in some edge cases. For example:
   - `abc"de"f` will be tokenized as a single token `abc"de"f`
-* No support for custom allocators.
+- No support for custom allocators.
+- No support for expressions or complex parsing logic

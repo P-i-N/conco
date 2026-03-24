@@ -67,7 +67,7 @@ namespace conco {
 
 constexpr std::string_view type_name( tag<bool> ) noexcept { return "bool"; }
 
-std::optional<bool> from_string( tag<bool>, std::string_view str ) noexcept
+inline std::optional<bool> from_string( tag<bool>, std::string_view str ) noexcept
 {
 	if ( str == "true" || str == "1" || str == "yes" || str == "on" )
 		return true;
@@ -77,7 +77,7 @@ std::optional<bool> from_string( tag<bool>, std::string_view str ) noexcept
 	return std::nullopt;
 }
 
-size_t to_chars( tag<bool>, std::span<char> buff, bool value ) noexcept
+inline size_t to_chars( tag<bool>, std::span<char> buff, bool value ) noexcept
 {
 	const char *str = value ? "true" : "false";
 	size_t len = std::char_traits<char>::length( str );
@@ -171,9 +171,9 @@ size_t to_chars( tag<T>, std::span<char> buff, T value ) noexcept
 
 constexpr std::string_view type_name( tag<std::string_view> ) noexcept { return "string"; }
 
-std::optional<std::string_view> from_string( tag<std::string_view>, std::string_view str ) noexcept { return str; }
+inline std::optional<std::string_view> from_string( tag<std::string_view>, std::string_view str ) noexcept { return str; }
 
-size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view value ) noexcept
+inline size_t to_chars( tag<std::string_view>, std::span<char> buff, std::string_view value ) noexcept
 {
 	size_t num_single_quotes = 0;
 	size_t num_double_quotes = 0;
@@ -215,7 +215,7 @@ constexpr std::string_view type_name( tag<const char *> ) noexcept { return "str
 // `const char *` parameters, include `extras/conco_stl_types.hpp` which provides `type_mapper`
 // specialization mapping `const char *` to `std::string` storage.
 
-size_t to_chars( tag<const char *>, std::span<char> buff, const char *value ) noexcept
+inline size_t to_chars( tag<const char *>, std::span<char> buff, const char *value ) noexcept
 {
 	return to_chars( tag<std::string_view>{}, buff, value ? std::string_view{ value } : std::string_view{} );
 }

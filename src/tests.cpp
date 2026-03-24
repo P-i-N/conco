@@ -320,7 +320,7 @@ TEST_SUITE( "Callback types" )
 			conco::method<&calculator::const_foo>( const_calc, "const_foo_const_instance" ),
 		};
 
-		CHECK( commands[0].desc.arg_count == 2 );
+		CHECK( commands[0].desc->arg_count == 2 );
 
 		char buffer[64] = { 0 };
 
@@ -346,7 +346,7 @@ TEST_SUITE( "Callback types" )
 			{ capturing_lambda, "add_capture x y" },
 		};
 
-		CHECK( commands[0].desc.arg_count == 2 );
+		CHECK( commands[0].desc->arg_count == 2 );
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "add 100 250;", buffer ) == conco::result::success );
@@ -372,7 +372,7 @@ TEST_SUITE( "Callback types" )
 			{ multiplier, "mul x y" },
 		};
 
-		CHECK( commands[0].desc.arg_count == 2 );
+		CHECK( commands[0].desc->arg_count == 2 );
 
 		char buffer[64] = { 0 };
 		CHECK( execute( commands, "mul 12 34", buffer ) == conco::result::success );
@@ -477,7 +477,24 @@ TEST_SUITE( "Tail arguments" )
 		CHECK( execute( commands, "sum_all 1 2 3 4 5", buffer ) == conco::result::success );
 		REQUIRE( std::string_view( buffer ) == "15" );
 
-		CHECK( commands[0].desc.has_tail_args == true );
+		CHECK( commands[0].desc->has_tail_args == true );
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST_SUITE( "Built-in types" )
+{
+	auto get_cmd_ud( const conco::command &cmd ) { return cmd.user_data; }
+
+	TEST_CASE( "Command user data" )
+	{
+		const conco::command commands[] = { { get_cmd_ud, "get_cmd_ud;Return this command's user data", 12345 } };
+
+		char buffer[64] = { 0 };
+
+		CHECK( execute( commands, "get_cmd_ud", buffer ) == conco::result::success );
+		REQUIRE( std::string_view( buffer ) == "12345" );
 	}
 }
 

@@ -5,6 +5,7 @@
 #include <span>
 #include <string_view>
 #include <tuple>
+#include <variant>
 
 #include "conco_tokenizer.hpp"
 
@@ -38,7 +39,7 @@ result execute( std::span<const struct command> commands,
  * Everything is type-erased, runtime information about arguments, return type and
  * invocation are stored separately under `desc` member.
  *
- * The whole structure fits nicely into 24 bytes on 64-bit systems or 12 bytes on 32-bit systems.
+ * The whole structure fits nicely into 32 bytes on 64-bit systems or 16 bytes on 32-bit systems.
  */
 struct command final
 {
@@ -46,21 +47,26 @@ struct command final
 	void *target = nullptr;
 
 	// Runtime info about arguments and invocation function
-	const struct descriptor &desc;
+	const struct descriptor *desc = nullptr;
 
 	// Command name with optional arg. names ("sum x y"), followed by optional description block
 	// separated by semicolon ("sum x y;Sum two integers")
 	const char *name_and_args = nullptr;
 
+	using user_data_t = std::uintptr_t;
+
+	// Optional user data that can be used for any purpose
+	user_data_t user_data = 0;
+
 	// Constructors for function commands. For method commands, use `method<>()` helper function.
 	template <typename F>
 	  requires std::is_function_v<std::remove_pointer_t<F>>
-	command( F func, const char *n );
+	command( F func, const char *n, user_data_t ud = {} );
 
 	// Constructors for callable objects/capturing lambda commands.
 	template <typename C>
 	  requires std::is_class_v<C>
-	command( C &callable, const char *n );
+	command( C &callable, const char *n, user_data_t ud = {} );
 
 	// Compares only the command name part, ignoring optional argument names and description
 	bool operator==( std::string_view name ) const noexcept
@@ -72,16 +78,32 @@ struct command final
 		return i == name.size() && tokenizer::is_ident_term( name_and_args[i] );
 	}
 
+	auto operator<=>( const command &other ) const noexcept
+	{
+		return std::string_view( name_and_args ) <=> std::string_view( other.name_and_args );
+	}
+
+	std::string_view name() const noexcept
+	{
+		const char *start = name_and_args;
+		const char *end = start;
+
+		while ( *end && !tokenizer::is_ident_term( *end ) )
+			++end;
+
+		return { start, static_cast<size_t>( end - start ) };
+	}
+
 private:
 	template <typename C>
-	command( const C &ctx, const descriptor &d, const char *n )
-	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_args( n )
+	command( const C &ctx, const struct descriptor *d, const char *n, user_data_t ud )
+	  : target( const_cast<C *>( &ctx ) ), desc( d ), name_and_args( n ), user_data( ud )
 	{}
 
 	template <auto M, typename C>
-	friend command method( C &ctx, const char *n );
+	friend command method( C &ctx, const char *n, user_data_t ud );
 	template <auto M, typename C>
-	friend command method( const C &ctx, const char *n );
+	friend command method( const C &ctx, const char *n, user_data_t ud );
 };
 
 /**
@@ -241,7 +263,7 @@ constexpr std::string_view type_name( auto ) noexcept
 }
 
 template <typename T>
-inline static constexpr const type_info *const type_info::get() noexcept
+inline constexpr const type_info *const type_info::get() noexcept
 {
 	static constexpr const type_info ti = { .name = type_name( tag<T>{} ),
 		                                      .inner_type_info = []() noexcept -> const type_info * {
@@ -401,7 +423,7 @@ struct function_invoker<RT ( * )( Args... )> : command_traits<RT( Args... )>
 		if ( ctx.out.has_error() )
 			return false;
 
-		auto *target = static_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
+		auto *target = reinterpret_cast<RT ( * )( Args... )>( ctx.out.cmd->target );
 
 		if constexpr ( std::is_void_v<RT> )
 		{
@@ -521,6 +543,7 @@ namespace conco {
 static tokenizer &parse( tag<tokenizer>, context &ctx ) noexcept { return ctx.args; }
 static output &parse( tag<output>, context &ctx ) noexcept { return ctx.out; }
 static const context &parse( tag<context>, context &ctx ) noexcept { return ctx; }
+static const command &parse( tag<command>, context &ctx ) noexcept { return *ctx.out.cmd; }
 
 template <>
 struct type_mapper<tokenizer> : detail::ref_type_mapper<tokenizer &>
@@ -534,28 +557,35 @@ template <>
 struct type_mapper<context> : detail::ref_type_mapper<const context &>
 {};
 
+template <>
+struct type_mapper<command> : detail::ref_type_mapper<const command &>
+{};
+
 template <typename F>
   requires std::is_function_v<std::remove_pointer_t<F>>
-inline command::command( F func, const char *n )
-  : target( ( void * )func ), desc( descriptor::get<detail::function_invoker<F>>() ), name_and_args( n )
+inline command::command( F func, const char *n, user_data_t ud )
+  : target( ( void * )func ),
+    desc( &descriptor::get<detail::function_invoker<F>>() ),
+    name_and_args( n ),
+    user_data( ud )
 {}
 
 template <typename C>
   requires std::is_class_v<C>
-inline command::command( C &callable, const char *n )
-  : target( &callable ), desc( descriptor::get<detail::callable_invoker<C>>() ), name_and_args( n )
+inline command::command( C &callable, const char *n, user_data_t ud )
+  : target( &callable ), desc( &descriptor::get<detail::callable_invoker<C>>() ), name_and_args( n ), user_data( ud )
 {}
 
 template <auto M, typename C>
-command method( C &ctx, const char *n )
+command method( C &ctx, const char *n, command::user_data_t ud = {} )
 {
-	return { ctx, descriptor::get<detail::method_invoker<C, M>>(), n };
+	return { ctx, &descriptor::get<detail::method_invoker<C, M>>(), n, ud };
 }
 
 template <auto M, typename C>
-command method( const C &ctx, const char *n )
+command method( const C &ctx, const char *n, command::user_data_t ud = {} )
 {
-	return { ctx, descriptor::get<detail::method_invoker<const C, M>>(), n };
+	return { ctx, &descriptor::get<detail::method_invoker<const C, M>>(), n, ud };
 }
 
 inline result execute( std::span<const command> commands, std::string_view cmd_line, output &out )
@@ -578,7 +608,7 @@ inline result execute( std::span<const command> commands, std::string_view cmd_l
 
 		out = { out.buffer, &*cmd_iter };
 
-		if ( out.cmd->desc.invoker( ctx ) )
+		if ( out.cmd->desc->invoker( ctx ) )
 			return result::success;
 
 		++cmd_iter;
